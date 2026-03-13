@@ -101,6 +101,17 @@ export default function ChatPanel({ projectId, videoId, videoTitle, transcript }
       body: JSON.stringify({ message: userText, history, videoFocus, transcript, videoTitle }),
     });
 
+    if (!res.ok) {
+      const { error } = await res.json().catch(() => ({ error: "Unexpected error from AI." }));
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === streamId ? { ...m, role: "system" as const, content: `⚠️ ${error}` } : m
+        )
+      );
+      setStreaming(false);
+      return;
+    }
+
     const reader = res.body!.getReader();
     const decoder = new TextDecoder();
     let fullText = "";

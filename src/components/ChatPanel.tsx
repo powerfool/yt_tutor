@@ -40,42 +40,60 @@ export default function ChatPanel({ projectId, videoId, videoTitle, transcript, 
   const [chatStarted, setChatStarted] = useState(false);
   const [suggestions, setSuggestions] = useState<string[] | null>(null);
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
+  const [messagesLoaded, setMessagesLoaded] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const prevVideoIdRef = useRef<string | null>(null);
   const messagesRef = useRef<HTMLDivElement>(null);
+  const allMessagesRef = useRef<Message[]>([]);
 
   useEffect(() => {
     fetch(`/api/projects/${projectId}/messages`)
       .then((r) => r.json())
-      .then(setMessages);
+      .then((msgs) => {
+        setMessages(msgs);
+        allMessagesRef.current = msgs;
+        setMessagesLoaded(true);
+      });
   }, [projectId]);
 
   useEffect(() => {
-    if (!videoId || videoId === prevVideoIdRef.current) return;
+    if (!videoId || !messagesLoaded) return;
+    if (videoId === prevVideoIdRef.current) return;
     prevVideoIdRef.current = videoId;
 
-    setChatStarted(false);
     setSuggestions(null);
 
-    const systemMsg: Message = {
-      id: crypto.randomUUID(),
-      role: "system",
-      content: `Started watching: ${videoTitle ?? videoId}`,
-      videoId,
-    };
+    const msgs = allMessagesRef.current;
+    const hasConvo = msgs.some(
+      (m) => (m.role === "user" || m.role === "assistant") && m.videoId === videoId
+    );
+    const hasSystemMsg = msgs.some(
+      (m) => m.role === "system" && m.videoId === videoId
+    );
 
-    fetch(`/api/projects/${projectId}/messages`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        role: "system",
-        content: systemMsg.content,
-        videoId,
-      }),
-    })
-      .then((r) => r.json())
-      .then((saved) => setMessages((prev) => [...prev, saved]));
-  }, [videoId, videoTitle, projectId]);
+    if (hasConvo) {
+      // Returning to a video with existing conversation — restore state
+      setChatStarted(true);
+      return;
+    }
+
+    // New video — reset chat state
+    setChatStarted(false);
+
+    if (!hasSystemMsg) {
+      const content = `Started watching: ${videoTitle ?? videoId}`;
+      fetch(`/api/projects/${projectId}/messages`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ role: "system", content, videoId }),
+      })
+        .then((r) => r.json())
+        .then((saved) => {
+          setMessages((prev) => [...prev, saved]);
+          allMessagesRef.current = [...allMessagesRef.current, saved];
+        });
+    }
+  }, [videoId, videoTitle, projectId, messagesLoaded]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -119,6 +137,7 @@ export default function ChatPanel({ projectId, videoId, videoTitle, transcript, 
     if (!confirm("Clear all chat messages? This cannot be undone.")) return;
     await fetch(`/api/projects/${projectId}/messages`, { method: "DELETE" });
     setMessages([]);
+    allMessagesRef.current = [];
     prevVideoIdRef.current = null;
     setChatStarted(false);
     setSuggestions(null);
@@ -182,7 +201,12 @@ export default function ChatPanel({ projectId, videoId, videoTitle, transcript, 
 
   async function startConversation() {
     setChatStarted(true);
-    await Promise.all([fetchSuggestions(), fetchChapters()]);
+    const tasks: Promise<void>[] = [fetchSuggestions()];
+    // Only generate chapters if none are already loaded (e.g. from saved watch history)
+    if (!chapters || chapters.length === 0) {
+      tasks.push(fetchChapters());
+    }
+    await Promise.all(tasks);
   }
 
   async function sendMessage() {
@@ -202,6 +226,8 @@ export default function ChatPanel({ projectId, videoId, videoTitle, transcript, 
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ role: "user", content: userText, videoId }),
+    }).then((r) => r.json()).then((saved) => {
+      allMessagesRef.current = [...allMessagesRef.current, saved];
     });
 
     setStreaming(true);
@@ -254,6 +280,8 @@ export default function ChatPanel({ projectId, videoId, videoTitle, transcript, 
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ role: "assistant", content: fullText, videoId }),
+    }).then((r) => r.json()).then((saved) => {
+      allMessagesRef.current = [...allMessagesRef.current, saved];
     });
   }
 

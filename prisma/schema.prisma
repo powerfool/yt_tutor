@@ -20,12 +20,13 @@ model Project {
 }
 
 model WatchHistory {
-  id         String   @id @default(cuid())
-  projectId  String
-  videoId    String
-  videoTitle String
-  watchedAt  DateTime @default(now())
-  project    Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  id           String   @id @default(cuid())
+  projectId    String
+  videoId      String
+  videoTitle   String
+  chaptersJson String?
+  watchedAt    DateTime @default(now())
+  project      Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
 }
 
 model Message {

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { parseVideoId, TranscriptSegment } from "@/lib/youtube";
+import { parseVideoId, TranscriptSegment, Chapter } from "@/lib/youtube";
 
 declare global {
   interface Window {
@@ -39,7 +39,7 @@ type HistoryEntry = {
 type Props = {
   projectId: string;
   initialVideoId: string | null;
-  onVideoLoad: (videoId: string, title: string, transcript: TranscriptSegment[] | null) => void;
+  onVideoLoad: (videoId: string, title: string, transcript: TranscriptSegment[] | null, savedChapters: Chapter[] | null) => void;
   playerRef: React.MutableRefObject<YTPlayer | null>;
 };
 
@@ -179,11 +179,14 @@ export default function VideoPanel({ projectId, initialVideoId, onVideoLoad, pla
       const res = await fetch(`/api/youtube/${id}`);
       const { title, transcript } = await res.json();
 
-      await fetch(`/api/projects/${projectId}/watch-history`, {
+      const historyRes = await fetch(`/api/projects/${projectId}/watch-history`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ videoId: id, videoTitle: title }),
       });
+      const historyEntry = historyRes.ok ? await historyRes.json() : null;
+      const savedChapters: Chapter[] | null =
+        historyEntry?.chaptersJson ? JSON.parse(historyEntry.chaptersJson) : null;
 
       fetch(`/api/projects/${projectId}`, {
         method: "PATCH",
@@ -191,7 +194,7 @@ export default function VideoPanel({ projectId, initialVideoId, onVideoLoad, pla
         body: JSON.stringify({ currentVideoId: id }),
       });
 
-      onVideoLoad(id, title, transcript);
+      onVideoLoad(id, title, transcript, savedChapters);
 
       // Refresh history silently if it was ever loaded
       if (historyLoaded) fetchHistory();

@@ -23,13 +23,26 @@ export default function ProjectClient({ projectId, initialVideoId }: Props) {
   function handleVideoLoad(
     id: string,
     title: string,
-    segments: TranscriptSegment[] | null
+    segments: TranscriptSegment[] | null,
+    savedChapters: Chapter[] | null
   ) {
     setVideoId(id);
     setVideoTitle(title);
     setTranscript(segments);
-    setChapters([]); // reset chapters on new video
+    setChapters(savedChapters && savedChapters.length > 0 ? savedChapters : []);
     setTranscriptOpen(!!segments && segments.length > 0);
+  }
+
+  function handleChaptersGenerated(newChapters: Chapter[]) {
+    setChapters(newChapters);
+    // Persist generated chapters to watch history
+    if (videoId) {
+      fetch(`/api/projects/${projectId}/watch-history`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ videoId, chapters: newChapters }),
+      });
+    }
   }
 
   const hasTranscript = !!transcript && transcript.length > 0;
@@ -87,7 +100,7 @@ export default function ProjectClient({ projectId, initialVideoId }: Props) {
           playerRef={playerRef}
           onCopyToNotebook={(text) => notebookRef.current?.appendText(text)}
           onCopyMarkdownToNotebook={(md) => notebookRef.current?.appendMarkdown(md)}
-          onChaptersGenerated={setChapters}
+          onChaptersGenerated={handleChaptersGenerated}
           chapters={chapters}
         />
       </div>

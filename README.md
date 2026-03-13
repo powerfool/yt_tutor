@@ -1,36 +1,270 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# YT Tutor
 
-## Getting Started
+A personal YouTube player with an AI research sidebar and a persistent per-project notebook. Paste a YouTube URL, watch the video, ask Claude anything about it mid-watch, and save what matters to a notebook that outlives any single session.
 
-First, run the development server:
+Built for solo use — self-hosted, single user, runs on a VPS.
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+---
+
+## What it does
+
+YT Tutor replaces the experience of watching YouTube alone. Instead of pausing to open a new tab, googling something, losing your place, and forgetting what you were thinking — you have a three-panel interface:
+
+```
+┌────────────────┬───────────────────┬───────────────────────┐
+│  Video player  │  AI Chat          │  Notebook (TipTap)    │
+│  (YouTube)     │  (Claude)         │  (autosave)           │
+│                │                   │                       │
+│  [Transcript]  │                   │                       │
+│  [History  ]   │                   │                       │
+└────────────────┴───────────────────┴───────────────────────┘
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+- **Left:** YouTube video player with a collapsible transcript panel and watch history below
+- **Center:** AI chat powered by Claude — ask anything, get streaming answers, full conversation history persists per project
+- **Right:** Rich-text notebook that autosaves, one per project
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+---
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Features
 
-## Learn More
+### Projects
+- Multiple named projects, like browser tabs or NotebookLM workspaces
+- Each project has its own independent chat history, notebook, and watch history
+- Switch between projects instantly from the tab bar at the top
+- Rename projects by double-clicking the tab
+- Everything persists — close the browser, come back, pick up exactly where you left off
 
-To learn more about Next.js, take a look at the following resources:
+### Video Player
+- Paste any YouTube URL (full URL, `youtu.be` short link, Shorts, embed URL, or bare video ID)
+- Video persists across page reloads — the same video reloads automatically at the timestamp you left it
+- Watch history recorded per project (video title + time watched)
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+### AI Chat
+- Powered by Claude (`claude-sonnet-4-6`) with streaming responses
+- **Default mode:** full Claude knowledge — ask about anything, not just the video
+- **Video focus mode:** toggle on to restrict Claude to the video's transcript as context, useful when you want answers anchored to what was actually said in the video
+- Chat history is a continuous log across all videos watched in a project
+- When you load a new video, a system message appears inline: *"Started watching: Video Title"* — gives the thread a timeline feel as you scroll back
+- Graceful error handling for API credit issues, rate limits, and network errors
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+### Transcript Panel
+- Auto-fetched when a video loads (via YouTube Data API)
+- Collapsible — toggled via the "Transcript" tab below the player
+- Active segment highlighted in yellow and auto-scrolled to as the video plays
+- Pauses auto-scroll for 5 seconds when you manually scroll, then resumes
+- Text is selectable and copyable
+- Falls back gracefully when transcripts are unavailable (e.g. videos without captions)
 
-## Deploy on Vercel
+### Copy to Notebook
+- Select any text in the chat — a **"Copy to notebook"** button floats above your selection
+- One click appends the selected text as a new paragraph in the notebook and triggers autosave
+- No reformatting, no interruption to your flow
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+### Notebook
+- Rich text editor (TipTap) with a formatting toolbar: bold, italic, strikethrough, H1/H2, bullet lists, ordered lists, blockquotes, inline code
+- Debounced autosave — saves 800ms after you stop typing, silently in the background
+- "Saved / Saving… / Unsaved" status indicator in the header
+- One notebook per project; content persists across sessions
+- Accepts text appended programmatically via the copy-to-notebook feature
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+### Watch History
+- Per-project list of every video watched, with relative timestamps ("5m ago", "2h ago")
+- Accessible via the "History" tab below the video player
+- Each entry links to the video on YouTube (opens in a new tab)
+- Refreshes automatically when a new video loads
+
+### Dark Mode
+- Follows your system preference automatically (`prefers-color-scheme`)
+- No manual toggle needed — switches instantly with your OS
+
+---
+
+## Tech Stack
+
+| Layer | Technology |
+|---|---|
+| Framework | Next.js 16 (App Router, TypeScript, Tailwind CSS v4) |
+| Database | SQLite via Prisma 6 |
+| Auth | NextAuth v5 (credentials provider, single user) |
+| AI | Anthropic Claude API (streaming) |
+| Video playback | YouTube IFrame Player API |
+| Transcripts & metadata | YouTube Data API v3 |
+| Rich text | TipTap 3 with StarterKit |
+| Process manager | PM2 (VPS deployment) |
+
+---
+
+## Prerequisites
+
+- Node.js 18+
+- npm
+- A [YouTube Data API v3 key](https://console.cloud.google.com/) — for fetching video metadata and transcripts
+- An [Anthropic API key](https://console.anthropic.com/) — for Claude AI chat
+
+---
+
+## Installation
+
+```bash
+git clone https://github.com/powerfool/yt_tutor.git
+cd yt_tutor
+npm install
+npx prisma generate
+```
+
+---
+
+## Configuration
+
+Copy `.env.example` to `.env` and fill in all values:
+
+```bash
+cp .env.example .env
+```
+
+```env
+DATABASE_URL="file:./prisma/dev.db"
+
+# NextAuth — generate AUTH_SECRET with: openssl rand -base64 32
+AUTH_SECRET="your-random-secret"
+AUTH_URL="http://localhost:3000"
+
+# Single admin user credentials
+ADMIN_USERNAME="your-username"
+
+# Generate a bcrypt hash of your password (cost factor 10):
+#   node -e "const b = require('bcryptjs'); b.hash('your-password', 10).then(console.log)"
+# Then escape every $ with \$ in the .env file:
+ADMIN_PASSWORD_HASH=\$2b\$10\$...your-hash-here...
+
+# API keys — server-side only, never sent to the browser
+ANTHROPIC_API_KEY="sk-ant-..."
+YOUTUBE_API_KEY="AIza..."
+```
+
+> **Important:** Every `$` in the bcrypt hash **must** be escaped as `\$` in the `.env` file. Next.js uses `dotenv-expand` which interprets unescaped `$` as variable references and will corrupt the hash silently.
+
+---
+
+## Running Locally
+
+```bash
+# Apply database migrations
+npx prisma migrate dev
+
+# Start the dev server
+npm run dev
+```
+
+Open [http://localhost:3000](http://localhost:3000). You'll be redirected to `/login` — sign in with the username and password you configured above.
+
+---
+
+## Database Management
+
+```bash
+# Apply schema changes (creates a migration file)
+npx prisma migrate dev --name describe-your-change
+
+# Inspect the database in a browser GUI
+npx prisma studio
+
+# Regenerate the Prisma client after schema changes
+npx prisma generate
+```
+
+---
+
+## Deployment (VPS with PM2)
+
+```bash
+# First-time setup on the server
+npm ci
+npx prisma migrate deploy
+npm run build
+pm2 start ecosystem.config.js
+pm2 save
+
+# Subsequent deploys
+npm ci
+npx prisma migrate deploy
+npm run build
+pm2 restart yt-tutor
+
+# View logs
+pm2 logs yt-tutor
+```
+
+Make sure `.env` is populated on the server and `AUTH_URL` points to your public domain (e.g. `https://yourdomain.com`).
+
+---
+
+## Project Structure
+
+```
+src/
+  app/
+    login/                     Login page (unauthenticated)
+    project/[id]/              Main project page (three-panel layout)
+    api/
+      auth/                    NextAuth handler
+      chat/                    Streaming Claude API route
+      projects/                GET all projects, POST new project
+      projects/[id]/           PATCH (rename, set current video), DELETE project
+        messages/              GET + POST chat messages for a project
+        notebook/              GET + PATCH notebook content
+        watch-history/         GET + POST watch history
+      youtube/[videoId]/       GET video title + transcript (server-side proxy)
+  components/
+    ProjectTabBar.tsx           Top tab bar — list, create, rename projects
+    ProjectClient.tsx           Client shell — shared video/transcript/player state
+    VideoPanel.tsx              YouTube IFrame player + URL bar + timestamp persistence
+    TranscriptPanel.tsx         Timestamp-synced transcript with auto-scroll
+    ChatPanel.tsx               Streaming AI chat, video focus toggle, copy-to-notebook
+    NotebookPanel.tsx           TipTap editor — toolbar, autosave, exposes appendText
+    WatchHistoryPanel.tsx       Per-project list of watched videos with relative times
+  lib/
+    youtube.ts                  YouTube Data API client (title + transcript fetch)
+    prisma.ts                   Prisma singleton with absolute DB path resolution
+  auth.ts                       NextAuth v5 config (credentials provider)
+  proxy.ts                      Auth middleware — redirects unauthenticated requests
+prisma/
+  schema.prisma                 Data model
+  dev.db                        SQLite database (gitignored)
+ecosystem.config.js             PM2 process config
+```
+
+---
+
+## Data Model
+
+```
+Project       id, name, currentVideoId, createdAt, updatedAt
+WatchHistory  id, projectId, videoId, videoTitle, watchedAt
+Message       id, projectId, role (user|assistant|system), content, videoId, createdAt
+Notebook      id, projectId, content (TipTap JSON string), updatedAt
+```
+
+- One notebook per project (auto-created on first access)
+- Chat messages are a continuous log scoped to the project, not to individual videos
+- `currentVideoId` on Project stores the last-watched video for reload persistence; playback timestamp is stored in `localStorage` keyed by project ID
+
+---
+
+## Security
+
+- All API routes require a valid session — unauthenticated requests return 401
+- YouTube and Anthropic API keys live in server-side env vars only, never sent to the browser
+- All YouTube and Claude API calls are proxied through Next.js API routes
+- CSRF protection via NextAuth built-ins
+- SQLite database file lives outside the web root
+
+---
+
+## Known Limitations
+
+- **Single user only** — no multi-user or role support
+- **Transcripts require captions** — videos without captions will show "unavailable" in the transcript tab
+- **Unofficial transcript API** — the `youtube-transcript` package scrapes YouTube's internal API and may break if YouTube changes its internals
+- **No export integrations** — copy-paste is the only way to get content out of the notebook for now

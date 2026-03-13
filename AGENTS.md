@@ -212,6 +212,33 @@ Update docs as you work — not just at wrap-up.
 
 - **AGENTS.md** — gotchas, patterns, framework surprises
 - **opportunity assessment.md** — when implementation differs from plan
-- **README.md** — after each phase, update current status
+- **README.md** — **REQUIRED after every new feature or phase.** See rules below.
 
 Ask yourself: *"What would confuse a future agent about this?"* If anything, write it down before moving on.
+
+---
+
+## README Maintenance Rules
+
+`README.md` is the public face of the project. Someone cloning the repo should be able to understand what it does, set it up, and use it without reading any other file.
+
+**You MUST update README.md when:**
+- A new user-facing feature is added (add it to the Features section)
+- A new API route or component is added (update Project Structure)
+- A new env var is required (update Configuration)
+- The data model changes (update Data Model)
+- A known limitation is resolved or a new one is discovered
+- The tech stack changes (new dependency added or removed)
+
+**README sections to keep current:**
+- `## Features` — every feature the user can actually use
+- `## Tech Stack` — accurate dependency table
+- `## Configuration` — all required env vars with generation instructions
+- `## Project Structure` — every significant file/directory
+- `## Data Model` — current schema with field notes
+- `## Known Limitations` — honest about gaps
+
+**Never:**
+- Leave the README describing features that don't exist yet
+- Leave out features that do exist
+- Copy implementation details that belong in AGENTS.md (gotchas, patterns) into the README

@@ -130,6 +130,7 @@ pm2 logs yt-tutor          # view logs
 - **Generated files:** `src/generated/prisma/` is gitignored. Run `npx prisma generate` after cloning or after schema changes.
 - **Config file:** `prisma.config.ts` at root (not `prisma/schema.prisma` alone). DATABASE_URL is read via `dotenv/config` in that file.
 - **Migration:** `npx prisma migrate dev --name <name>` — runs generate automatically after migration.
+- **DB path resolution (CRITICAL):** Prisma CLI resolves `file:./dev.db` relative to `prisma/schema.prisma` (→ `prisma/dev.db`). Next.js/Turbopack resolves DATABASE_URL from an unpredictable cwd. Always construct the DB URL as an absolute path in `src/lib/prisma.ts` using `path.resolve(process.cwd(), "prisma/dev.db")` — do not rely on the env var path at runtime.
 
 ---
 

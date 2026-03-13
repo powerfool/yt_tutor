@@ -11,6 +11,8 @@ export default defineConfig({
   },
   engine: "classic",
   datasource: {
-    url: env("DATABASE_URL"),
+    // Relative to prisma/schema.prisma — resolves to prisma/dev.db
+    // Runtime (Next.js) uses DATABASE_URL=file:./prisma/dev.db from .env
+    url: "file:./dev.db",
   },
 });

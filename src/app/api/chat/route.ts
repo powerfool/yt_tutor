@@ -15,9 +15,11 @@ function formatMs(ms: number): string {
 }
 
 function formatSec(sec: number): string {
-  const mins = Math.floor(sec / 60);
-  const secs = Math.floor(sec % 60);
-  return `${mins}:${secs.toString().padStart(2, "0")}`;
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = Math.floor(sec % 60);
+  if (h > 0) return `${h}:${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
+  return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
 export async function POST(req: NextRequest) {
@@ -61,10 +63,15 @@ export async function POST(req: NextRequest) {
 
   // Block 2: small dynamic block (uncached)
   const timeStr = formatSec(currentTimeSec ?? 0);
-  const focusInstruction = videoOnly
-    ? "Answer strictly based on what has been said in the video. Do not bring in outside knowledge or your own views."
-    : "Use both the video content and your general knowledge to give the most helpful answer.";
-  const block2 = `The learner is currently at ${timeStr}. Treat content after this timestamp as unseen by them.\n${focusInstruction}`;
+  // videoOnly = restrict to video as the sole source of truth, but use the full transcript —
+  // knowledge later in the video is still valid, the learner just hasn't reached it yet.
+  // videoOnly = false = supplement with general knowledge, but don't reference content the
+  // learner hasn't watched yet (treat post-timestamp content as unseen).
+  const block2 = videoOnly
+    ? `The learner is currently at ${timeStr}.\n` +
+      `Answer using the full video transcript. Do not bring in any knowledge, facts, or opinions from outside this video.`
+    : `The learner is currently at ${timeStr}.\n` +
+      `Use both the video content and your general knowledge to give the most helpful answer.`;
 
   try {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

@@ -12,6 +12,11 @@ export type VideoInfo = {
   transcript: TranscriptSegment[] | null;
 };
 
+export type Chapter = {
+  title: string;
+  startTimeSec: number;
+};
+
 /** Parse a YouTube video ID from any common URL format. */
 export function parseVideoId(input: string): string | null {
   try {

@@ -68,18 +68,19 @@ export default function ProjectTabBar() {
   }
 
   return (
-    <div className="flex items-center gap-1 px-2 border-b border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-950 overflow-x-auto shrink-0">
+    <div className="flex items-end gap-0 px-2 border-b border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-950 overflow-x-auto shrink-0">
       {projects.map((project) => (
         <div
           key={project.id}
           onClick={() => router.push(`/project/${project.id}`)}
           onDoubleClick={() => startEditing(project)}
+          style={{ marginBottom: "-1px" }}
           className={`
-            group flex items-center gap-1.5 px-3 py-2 text-sm rounded-t cursor-pointer select-none whitespace-nowrap
+            group flex items-center gap-1.5 px-3 h-9 text-[13px] cursor-pointer select-none whitespace-nowrap transition-colors border-b-2
             ${
               activeId === project.id
-                ? "bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100 font-medium"
-                : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
+                ? "border-blue-500 text-gray-900 dark:text-gray-100 font-medium"
+                : "border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 hover:border-gray-300 dark:hover:border-gray-600"
             }
           `}
         >
@@ -94,14 +95,14 @@ export default function ProjectTabBar() {
                 if (e.key === "Escape") setEditingId(null);
               }}
               onClick={(e) => e.stopPropagation()}
-              className="bg-white dark:bg-gray-700 border border-blue-400 rounded px-1 w-32 text-sm focus:outline-none text-gray-900 dark:text-gray-100"
+              className="bg-white dark:bg-gray-700 border border-blue-400 rounded px-1 w-32 text-[13px] focus:outline-none text-gray-900 dark:text-gray-100"
             />
           ) : (
             project.name
           )}
           <button
             onClick={(e) => deleteProject(project.id, e)}
-            className="opacity-0 group-hover:opacity-100 ml-0.5 text-gray-400 hover:text-red-500 dark:hover:text-red-400 leading-none transition-opacity"
+            className="opacity-0 group-hover:opacity-100 ml-0.5 w-4 h-4 flex items-center justify-center rounded text-gray-400 hover:text-red-500 dark:hover:text-red-400 hover:bg-gray-200 dark:hover:bg-gray-700 text-xs transition-all leading-none"
             title="Delete project"
           >
             ×
@@ -111,7 +112,7 @@ export default function ProjectTabBar() {
 
       <button
         onClick={createProject}
-        className="px-2 py-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-lg leading-none shrink-0"
+        className="ml-1 w-7 h-7 flex items-center justify-center rounded-md text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 text-lg leading-none transition-colors shrink-0 mb-1"
         title="New project"
       >
         +

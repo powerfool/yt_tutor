@@ -3,6 +3,7 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
+import { markdownToHtml } from "@/lib/markdownToTiptap";
 
 type Props = {
   projectId: string;
@@ -10,6 +11,7 @@ type Props = {
 
 export type NotebookHandle = {
   appendText: (text: string) => void;
+  appendMarkdown: (markdown: string) => void;
 };
 
 type SaveStatus = "saved" | "saving" | "unsaved";
@@ -46,7 +48,7 @@ const NotebookPanel = forwardRef<NotebookHandle, Props>(function NotebookPanel(
     editorProps: {
       attributes: {
         class:
-          "prose prose-sm dark:prose-invert max-w-none focus:outline-none px-4 py-3 min-h-full",
+          "prose prose-sm dark:prose-invert max-w-none focus:outline-none px-4 py-4 min-h-full",
       },
     },
     onUpdate: ({ editor }) => {
@@ -59,7 +61,6 @@ const NotebookPanel = forwardRef<NotebookHandle, Props>(function NotebookPanel(
     },
   });
 
-  // Expose appendText to parent via ref
   useImperativeHandle(
     ref,
     () => ({
@@ -71,11 +72,16 @@ const NotebookPanel = forwardRef<NotebookHandle, Props>(function NotebookPanel(
           .insertContentAt(end, [{ type: "paragraph", content: [{ type: "text", text }] }])
           .run();
       },
+      appendMarkdown: (markdown: string) => {
+        if (!editor) return;
+        const html = markdownToHtml(markdown);
+        const end = editor.state.doc.content.size;
+        editor.chain().insertContentAt(end, html || markdown).run();
+      },
     }),
     [editor]
   );
 
-  // Load initial content once editor is ready
   useEffect(() => {
     if (!editor) return;
     fetch(`/api/projects/${projectId}/notebook`)
@@ -97,7 +103,6 @@ const NotebookPanel = forwardRef<NotebookHandle, Props>(function NotebookPanel(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editor]);
 
-  // Cleanup timer on unmount
   useEffect(() => {
     return () => {
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
@@ -107,30 +112,30 @@ const NotebookPanel = forwardRef<NotebookHandle, Props>(function NotebookPanel(
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="flex items-center justify-between px-3 py-2 border-b border-gray-200 dark:border-gray-800 shrink-0">
-        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+      <div className="flex items-center justify-between px-4 py-2.5 border-b border-gray-200 dark:border-gray-800 shrink-0">
+        <span className="text-[11px] font-semibold tracking-widest uppercase text-gray-400 dark:text-gray-500">
           Notebook
         </span>
         <span
-          className={`text-xs transition-colors ${
+          className={`text-[11px] font-mono transition-colors ${
             saveStatus === "saved"
-              ? "text-gray-400 dark:text-gray-600"
+              ? "text-gray-300 dark:text-gray-700"
               : saveStatus === "saving"
-              ? "text-blue-400"
-              : "text-yellow-500"
+              ? "text-blue-400 dark:text-blue-500"
+              : "text-amber-500"
           }`}
         >
           {saveStatus === "saved"
-            ? "Saved"
+            ? "saved"
             : saveStatus === "saving"
-            ? "Saving…"
-            : "Unsaved"}
+            ? "saving…"
+            : "unsaved"}
         </span>
       </div>
 
       {/* Toolbar */}
       {editor && (
-        <div className="flex items-center gap-1 px-2 py-1 border-b border-gray-200 dark:border-gray-800 shrink-0 flex-wrap">
+        <div className="flex items-center gap-0.5 px-3 py-1.5 border-b border-gray-200 dark:border-gray-800 shrink-0 flex-wrap bg-gray-50 dark:bg-gray-900">
           <ToolbarButton
             onClick={() => editor.chain().focus().toggleBold().run()}
             active={editor.isActive("bold")}
@@ -152,7 +157,7 @@ const NotebookPanel = forwardRef<NotebookHandle, Props>(function NotebookPanel(
           >
             <s>S</s>
           </ToolbarButton>
-          <div className="w-px h-4 bg-gray-200 dark:bg-gray-700 mx-1" />
+          <div className="w-px h-3.5 bg-gray-200 dark:bg-gray-700 mx-1" />
           <ToolbarButton
             onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}
             active={editor.isActive("heading", { level: 1 })}
@@ -167,7 +172,7 @@ const NotebookPanel = forwardRef<NotebookHandle, Props>(function NotebookPanel(
           >
             H2
           </ToolbarButton>
-          <div className="w-px h-4 bg-gray-200 dark:bg-gray-700 mx-1" />
+          <div className="w-px h-3.5 bg-gray-200 dark:bg-gray-700 mx-1" />
           <ToolbarButton
             onClick={() => editor.chain().focus().toggleBulletList().run()}
             active={editor.isActive("bulletList")}
@@ -227,10 +232,10 @@ function ToolbarButton({
         onClick();
       }}
       title={title}
-      className={`px-1.5 py-0.5 text-xs rounded transition-colors ${
+      className={`px-2 py-1 text-[11px] rounded-md transition-colors font-mono ${
         active
-          ? "bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300"
-          : "text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800"
+          ? "bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300"
+          : "text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700 hover:text-gray-700 dark:hover:text-gray-200"
       }`}
     >
       {children}

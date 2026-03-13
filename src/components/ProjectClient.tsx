@@ -5,11 +5,9 @@ import VideoPanel from "@/components/VideoPanel";
 import ChatPanel from "@/components/ChatPanel";
 import NotebookPanel, { NotebookHandle } from "@/components/NotebookPanel";
 import TranscriptPanel from "@/components/TranscriptPanel";
-import WatchHistoryPanel from "@/components/WatchHistoryPanel";
-import { TranscriptSegment } from "@/lib/youtube";
+import { TranscriptSegment, Chapter } from "@/lib/youtube";
 
 type YTPlayer = { getCurrentTime: () => number; seekTo: (s: number, a: boolean) => void; destroy: () => void };
-type BottomPanel = "transcript" | "history" | null;
 
 type Props = { projectId: string; initialVideoId: string | null };
 
@@ -19,7 +17,8 @@ export default function ProjectClient({ projectId, initialVideoId }: Props) {
   const [videoId, setVideoId] = useState<string | null>(null);
   const [videoTitle, setVideoTitle] = useState<string | null>(null);
   const [transcript, setTranscript] = useState<TranscriptSegment[] | null>(null);
-  const [bottomPanel, setBottomPanel] = useState<BottomPanel>(null);
+  const [transcriptOpen, setTranscriptOpen] = useState(false);
+  const [chapters, setChapters] = useState<Chapter[]>([]);
 
   function handleVideoLoad(
     id: string,
@@ -29,22 +28,18 @@ export default function ProjectClient({ projectId, initialVideoId }: Props) {
     setVideoId(id);
     setVideoTitle(title);
     setTranscript(segments);
-    // Auto-open transcript if available, otherwise history
-    setBottomPanel(segments && segments.length > 0 ? "transcript" : "history");
-  }
-
-  function togglePanel(panel: "transcript" | "history") {
-    setBottomPanel((prev) => (prev === panel ? null : panel));
+    setChapters([]); // reset chapters on new video
+    setTranscriptOpen(!!segments && segments.length > 0);
   }
 
   const hasTranscript = !!transcript && transcript.length > 0;
 
   return (
     <div className="flex flex-1 overflow-hidden">
-      {/* Left: Video + bottom panel */}
+      {/* Left: Video + transcript */}
       <div className="flex flex-col w-[40%] border-r border-gray-200 dark:border-gray-800">
         {/* Video */}
-        <div className={bottomPanel ? "h-[55%]" : "flex-1"}>
+        <div className={transcriptOpen ? "h-[55%]" : "flex-1"}>
           <VideoPanel
             projectId={projectId}
             initialVideoId={initialVideoId}
@@ -53,33 +48,31 @@ export default function ProjectClient({ projectId, initialVideoId }: Props) {
           />
         </div>
 
-        {/* Tab strip */}
-        <div className="shrink-0 flex border-t border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900">
-          <TabButton
-            active={bottomPanel === "transcript"}
+        {/* Transcript tab */}
+        <div className="shrink-0 flex items-end border-t border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900">
+          <button
+            onClick={() => setTranscriptOpen((v) => !v)}
             disabled={!hasTranscript}
-            onClick={() => togglePanel("transcript")}
             title={!hasTranscript && !!videoId ? "Transcript unavailable" : undefined}
+            style={{ marginBottom: "-1px" }}
+            className={`px-4 py-2 text-[11px] font-medium tracking-widest uppercase border-b-2 transition-colors disabled:opacity-30 disabled:cursor-not-allowed ${
+              transcriptOpen
+                ? "border-blue-500 text-blue-600 dark:text-blue-400 bg-white dark:bg-gray-950"
+                : "border-transparent text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800"
+            }`}
           >
             Transcript
-          </TabButton>
-          <TabButton
-            active={bottomPanel === "history"}
-            onClick={() => togglePanel("history")}
-          >
-            History
-          </TabButton>
+          </button>
         </div>
 
-        {/* Bottom panel */}
-        {bottomPanel && (
+        {/* Transcript panel */}
+        {transcriptOpen && hasTranscript && (
           <div className="flex-1 overflow-hidden border-t border-gray-200 dark:border-gray-800">
-            {bottomPanel === "transcript" && hasTranscript && (
-              <TranscriptPanel transcript={transcript!} playerRef={playerRef} />
-            )}
-            {bottomPanel === "history" && (
-              <WatchHistoryPanel projectId={projectId} refreshKey={videoId} />
-            )}
+            <TranscriptPanel
+              transcript={transcript!}
+              playerRef={playerRef}
+              chapters={chapters}
+            />
           </div>
         )}
       </div>
@@ -93,6 +86,9 @@ export default function ProjectClient({ projectId, initialVideoId }: Props) {
           transcript={transcript}
           playerRef={playerRef}
           onCopyToNotebook={(text) => notebookRef.current?.appendText(text)}
+          onCopyMarkdownToNotebook={(md) => notebookRef.current?.appendMarkdown(md)}
+          onChaptersGenerated={setChapters}
+          chapters={chapters}
         />
       </div>
 
@@ -101,34 +97,5 @@ export default function ProjectClient({ projectId, initialVideoId }: Props) {
         <NotebookPanel ref={notebookRef} projectId={projectId} />
       </div>
     </div>
-  );
-}
-
-function TabButton({
-  active,
-  disabled,
-  onClick,
-  title,
-  children,
-}: {
-  active: boolean;
-  disabled?: boolean;
-  onClick: () => void;
-  title?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      disabled={disabled}
-      title={title}
-      className={`flex-1 text-xs px-3 py-1.5 border-b-2 transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
-        active
-          ? "border-blue-500 text-blue-600 dark:text-blue-400 bg-white dark:bg-gray-950"
-          : "border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800"
-      }`}
-    >
-      {children}
-    </button>
   );
 }

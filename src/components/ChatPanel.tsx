@@ -3,7 +3,8 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { TranscriptSegment } from "@/lib/youtube";
+import { TranscriptSegment, Chapter } from "@/lib/youtube";
+
 
 type YTPlayer = { getCurrentTime: () => number; seekTo: (s: number, a: boolean) => void; destroy: () => void };
 
@@ -25,9 +26,12 @@ type Props = {
   transcript: TranscriptSegment[] | null;
   playerRef: React.MutableRefObject<YTPlayer | null>;
   onCopyToNotebook?: (text: string) => void;
+  onCopyMarkdownToNotebook?: (markdown: string) => void;
+  onChaptersGenerated?: (chapters: Chapter[]) => void;
+  chapters?: Chapter[];
 };
 
-export default function ChatPanel({ projectId, videoId, videoTitle, transcript, playerRef, onCopyToNotebook }: Props) {
+export default function ChatPanel({ projectId, videoId, videoTitle, transcript, playerRef, onCopyToNotebook, onCopyMarkdownToNotebook, onChaptersGenerated, chapters }: Props) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [videoOnly, setVideoOnly] = useState(false);
@@ -40,19 +44,16 @@ export default function ChatPanel({ projectId, videoId, videoTitle, transcript, 
   const prevVideoIdRef = useRef<string | null>(null);
   const messagesRef = useRef<HTMLDivElement>(null);
 
-  // Load existing messages on mount
   useEffect(() => {
     fetch(`/api/projects/${projectId}/messages`)
       .then((r) => r.json())
       .then(setMessages);
   }, [projectId]);
 
-  // Insert system message + reset chat UI when video changes
   useEffect(() => {
     if (!videoId || videoId === prevVideoIdRef.current) return;
     prevVideoIdRef.current = videoId;
 
-    // Reset conversation starter state
     setChatStarted(false);
     setSuggestions(null);
 
@@ -76,12 +77,10 @@ export default function ChatPanel({ projectId, videoId, videoTitle, transcript, 
       .then((saved) => setMessages((prev) => [...prev, saved]));
   }, [videoId, videoTitle, projectId]);
 
-  // Scroll to bottom on new messages
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, streaming]);
 
-  // Selection-based "Copy to notebook" popup
   const handleMessagesMouseUp = useCallback(() => {
     if (!onCopyToNotebook) return;
     const sel = window.getSelection();
@@ -131,6 +130,14 @@ export default function ChatPanel({ projectId, videoId, videoTitle, transcript, 
       .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
   }
 
+  function getCurrentChapter(): Chapter | null {
+    if (!chapters || chapters.length === 0) return null;
+    const currentSec = playerRef.current?.getCurrentTime() ?? 0;
+    return chapters.reduce<Chapter>((best, ch) =>
+      ch.startTimeSec <= currentSec ? ch : best
+    , chapters[0]);
+  }
+
   async function fetchSuggestions() {
     setLoadingSuggestions(true);
     try {
@@ -142,6 +149,7 @@ export default function ChatPanel({ projectId, videoId, videoTitle, transcript, 
           videoTitle,
           currentTimeSec: playerRef.current?.getCurrentTime() ?? 0,
           history: buildHistory(),
+          currentChapter: getCurrentChapter(),
         }),
       });
       if (res.ok) {
@@ -153,9 +161,28 @@ export default function ChatPanel({ projectId, videoId, videoTitle, transcript, 
     }
   }
 
+  async function fetchChapters() {
+    if (!transcript || transcript.length === 0 || !onChaptersGenerated) return;
+    try {
+      const res = await fetch("/api/chat/chapters", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ transcript, videoTitle }),
+      });
+      if (res.ok) {
+        const { chapters } = await res.json();
+        if (Array.isArray(chapters) && chapters.length > 0) {
+          onChaptersGenerated(chapters);
+        }
+      }
+    } catch {
+      // non-fatal
+    }
+  }
+
   async function startConversation() {
     setChatStarted(true);
-    await fetchSuggestions();
+    await Promise.all([fetchSuggestions(), fetchChapters()]);
   }
 
   async function sendMessage() {
@@ -233,14 +260,14 @@ export default function ChatPanel({ projectId, videoId, videoTitle, transcript, 
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="flex items-center justify-between px-3 py-2 border-b border-gray-200 dark:border-gray-800 shrink-0">
-        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Chat</span>
-        <div className="flex items-center gap-2">
+      <div className="flex items-center justify-between px-4 py-2.5 border-b border-gray-200 dark:border-gray-800 shrink-0">
+        <span className="text-[11px] font-semibold tracking-widest uppercase text-gray-400 dark:text-gray-500">Chat</span>
+        <div className="flex items-center gap-1.5">
           {chatStarted && (
             <button
               onClick={fetchSuggestions}
               disabled={loadingSuggestions || !videoId}
-              className="text-xs px-2 py-1 rounded-full border border-gray-300 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:border-blue-400 hover:text-blue-500 dark:hover:text-blue-400 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              className="text-[11px] px-2.5 py-1 rounded-full border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:border-blue-400 hover:text-blue-600 dark:hover:text-blue-400 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
               title="Refresh suggestions"
             >
               {loadingSuggestions ? "…" : "Suggest"}
@@ -249,7 +276,7 @@ export default function ChatPanel({ projectId, videoId, videoTitle, transcript, 
           <button
             onClick={clearChat}
             disabled={messages.length === 0}
-            className="text-xs px-2 py-1 rounded-full border border-gray-300 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:border-red-400 hover:text-red-500 dark:hover:text-red-400 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            className="text-[11px] px-2.5 py-1 rounded-full border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:border-red-400 hover:text-red-500 dark:hover:text-red-400 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
             title="Clear all messages"
           >
             Clear
@@ -257,14 +284,15 @@ export default function ChatPanel({ projectId, videoId, videoTitle, transcript, 
           <button
             onClick={() => setVideoOnly((v) => !v)}
             disabled={!videoId}
-            className={`text-xs px-2 py-1 rounded-full border transition-colors ${
-              videoOnly
-                ? "bg-blue-100 dark:bg-blue-900 border-blue-300 dark:border-blue-700 text-blue-700 dark:text-blue-300"
-                : "border-gray-300 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:border-gray-400"
-            } disabled:opacity-40 disabled:cursor-not-allowed`}
-            title={videoOnly ? "Strictly using video content only" : "Using video + general knowledge"}
+            title={videoOnly ? "Answers draw only from the video (no outside knowledge)" : "Answers may use general knowledge in addition to the video"}
+            className="flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed group"
           >
-            {videoOnly ? "Video only" : "Open knowledge"}
+            <span className={`text-[11px] transition-colors ${videoOnly ? "text-gray-700 dark:text-gray-200" : "text-gray-400 dark:text-gray-500"}`}>
+              Video only
+            </span>
+            <div className={`relative w-7 h-4 rounded-full transition-colors ${videoOnly ? "bg-blue-600" : "bg-gray-200 dark:bg-gray-700 group-hover:bg-gray-300 dark:group-hover:bg-gray-600"}`}>
+              <div className={`absolute top-0.5 w-3 h-3 rounded-full bg-white shadow-sm transition-transform ${videoOnly ? "translate-x-3.5" : "translate-x-0.5"}`} />
+            </div>
           </button>
         </div>
       </div>
@@ -278,10 +306,10 @@ export default function ChatPanel({ projectId, videoId, videoTitle, transcript, 
           style={{
             position: "fixed",
             left: selectionPopup.x,
-            top: selectionPopup.y - 36,
+            top: selectionPopup.y - 38,
             transform: "translateX(-50%)",
           }}
-          className="z-50 bg-blue-600 hover:bg-blue-700 text-white text-xs px-2.5 py-1 rounded shadow-lg whitespace-nowrap"
+          className="z-50 bg-blue-600 hover:bg-blue-500 text-white text-[11px] font-medium px-3 py-1.5 rounded-full shadow-lg whitespace-nowrap transition-colors"
         >
           Copy to notebook
         </button>
@@ -291,27 +319,27 @@ export default function ChatPanel({ projectId, videoId, videoTitle, transcript, 
       <div
         ref={messagesRef}
         onMouseUp={handleMessagesMouseUp}
-        className="flex-1 overflow-y-auto px-3 py-2 space-y-3"
+        className="flex-1 overflow-y-auto px-4 py-4 space-y-6"
       >
-        {/* Start conversation button — shown when video loaded but chat not started */}
+        {/* Start conversation CTA */}
         {!chatStarted && videoId && messages.filter((m) => m.role !== "system").length === 0 && (
-          <div className="flex flex-col items-center justify-center h-full gap-3 mt-8">
-            <p className="text-sm text-gray-400 text-center">
+          <div className="flex flex-col items-center justify-center h-full gap-3">
+            <p className="text-sm text-gray-400 dark:text-gray-500 text-center">
               Ready to explore this video with AI
             </p>
             <button
               onClick={startConversation}
               disabled={loadingSuggestions}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white rounded-lg text-sm font-medium transition-colors"
+              className="px-5 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-60 text-white rounded-full text-sm font-medium transition-colors"
             >
               {loadingSuggestions ? "Loading suggestions…" : "Start conversation"}
             </button>
           </div>
         )}
 
-        {/* Default placeholder — no video loaded */}
+        {/* Placeholder — no video */}
         {!videoId && messages.length === 0 && (
-          <p className="text-sm text-gray-400 text-center mt-8">
+          <p className="text-sm text-gray-400 dark:text-gray-500 text-center mt-8">
             Ask anything — load a video to discuss it
           </p>
         )}
@@ -320,32 +348,43 @@ export default function ChatPanel({ projectId, videoId, videoTitle, transcript, 
           <div key={msg.id}>
             {msg.role === "system" ? (
               <div className="flex justify-center">
-                <span className="text-xs text-gray-400 dark:text-gray-500 bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded-full">
+                <span className="text-[11px] text-gray-400 dark:text-gray-500 bg-gray-100 dark:bg-gray-800/80 px-3 py-1 rounded-full font-mono">
                   {msg.content}
                 </span>
               </div>
             ) : (
               <div className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
-                <div
-                  className={`max-w-[85%] rounded-xl px-3 py-2 text-sm ${
-                    msg.role === "user"
-                      ? "bg-blue-600 text-white whitespace-pre-wrap"
-                      : "bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100"
-                  }`}
-                >
-                  {msg.role === "assistant" ? (
-                    <>
-                      <div className="prose prose-sm dark:prose-invert max-w-none prose-p:my-1 prose-headings:my-2 prose-ul:my-1 prose-ol:my-1 prose-li:my-0 prose-pre:my-2 prose-pre:bg-gray-200 dark:prose-pre:bg-gray-700 prose-code:text-pink-600 dark:prose-code:text-pink-400 prose-code:before:content-none prose-code:after:content-none">
-                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                          {msg.content}
-                        </ReactMarkdown>
-                      </div>
-                      {streaming && msg.content === "" && (
-                        <span className="inline-block w-2 h-3 bg-gray-400 animate-pulse rounded-sm" />
-                      )}
-                    </>
-                  ) : (
-                    msg.content
+                <div className={`group relative max-w-[85%]`}>
+                  <div
+                    className={`px-3.5 py-2.5 text-sm leading-relaxed ${
+                      msg.role === "user"
+                        ? "bg-blue-600 text-white whitespace-pre-wrap rounded-2xl rounded-tr-sm"
+                        : "bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100 rounded-2xl rounded-tl-sm"
+                    }`}
+                  >
+                    {msg.role === "assistant" ? (
+                      <>
+                        <div className="prose prose-sm dark:prose-invert max-w-none prose-p:my-1 prose-headings:my-2 prose-ul:my-1 prose-ol:my-1 prose-li:my-0 prose-pre:my-2 prose-pre:bg-gray-200 dark:prose-pre:bg-gray-700 prose-code:text-pink-600 dark:prose-code:text-pink-400 prose-code:before:content-none prose-code:after:content-none prose-code:font-mono prose-code:text-[0.82em]">
+                          <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                            {msg.content}
+                          </ReactMarkdown>
+                        </div>
+                        {streaming && msg.content === "" && (
+                          <span className="inline-block w-1.5 h-3.5 bg-gray-400 dark:bg-gray-500 animate-pulse rounded-sm" />
+                        )}
+                      </>
+                    ) : (
+                      msg.content
+                    )}
+                  </div>
+                  {msg.role === "assistant" && msg.content && onCopyMarkdownToNotebook && (
+                    <button
+                      onClick={() => onCopyMarkdownToNotebook(msg.content)}
+                      className="absolute -bottom-5 left-0 opacity-0 group-hover:opacity-100 text-[10px] text-gray-400 dark:text-gray-500 hover:text-blue-500 dark:hover:text-blue-400 transition-all whitespace-nowrap"
+                      title="Copy to notebook"
+                    >
+                      → Notebook
+                    </button>
                   )}
                 </div>
               </div>
@@ -357,13 +396,13 @@ export default function ChatPanel({ projectId, videoId, videoTitle, transcript, 
 
       {/* Suggestions */}
       {suggestions && suggestions.length > 0 && (
-        <div className="px-3 py-2 border-t border-gray-200 dark:border-gray-800 shrink-0">
+        <div className="px-4 py-3 border-t border-gray-200 dark:border-gray-800 shrink-0">
           <div className="flex flex-wrap gap-1.5">
             {suggestions.map((s, i) => (
               <button
                 key={i}
                 onClick={() => setInput(s)}
-                className="text-xs px-2.5 py-1.5 rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900 transition-colors text-left"
+                className="text-[12px] px-3 py-1.5 rounded-full border border-blue-200 dark:border-blue-800/60 bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors text-left"
               >
                 {s}
               </button>
@@ -372,16 +411,18 @@ export default function ChatPanel({ projectId, videoId, videoTitle, transcript, 
         </div>
       )}
 
-      {/* Loading suggestions spinner */}
+      {/* Loading suggestions */}
       {loadingSuggestions && chatStarted && (
-        <div className="px-3 py-2 border-t border-gray-200 dark:border-gray-800 shrink-0">
-          <p className="text-xs text-gray-400 text-center animate-pulse">Generating suggestions…</p>
+        <div className="px-4 py-3 border-t border-gray-200 dark:border-gray-800 shrink-0">
+          <p className="text-[11px] text-gray-400 dark:text-gray-500 text-center animate-pulse tracking-wide">
+            Generating suggestions…
+          </p>
         </div>
       )}
 
       {/* Input */}
-      <div className="px-3 py-2 border-t border-gray-200 dark:border-gray-800 shrink-0">
-        <div className="flex gap-2">
+      <div className="px-3 py-3 border-t border-gray-200 dark:border-gray-800 shrink-0">
+        <div className="flex gap-2 items-end">
           <textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
@@ -393,12 +434,12 @@ export default function ChatPanel({ projectId, videoId, videoTitle, transcript, 
             }}
             placeholder="Ask anything… (Enter to send, Shift+Enter for new line)"
             rows={2}
-            className="flex-1 px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="flex-1 px-3.5 py-2.5 text-sm rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500/60 transition-colors"
           />
           <button
             onClick={sendMessage}
             disabled={streaming || !input.trim()}
-            className="px-3 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-lg text-sm transition-colors self-end"
+            className="px-4 py-2.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-xl text-sm font-medium transition-colors shrink-0"
           >
             Send
           </button>

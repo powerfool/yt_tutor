@@ -1,6 +1,6 @@
 # YT Tutor
 
-A personal YouTube player with an AI research sidebar and a persistent per-project notebook. Paste a YouTube URL, watch the video, ask Claude anything about it mid-watch, and save what matters to a notebook that outlives any single session.
+A personal YouTube player with an AI research sidebar and a persistent per-project notebook. Paste a YouTube URL, watch the video, ask Claude anything about it, and save what matters to a notebook that outlives any single session.
 
 Built for solo use — self-hosted, single user, runs on a VPS.
 
@@ -11,18 +11,17 @@ Built for solo use — self-hosted, single user, runs on a VPS.
 YT Tutor replaces the experience of watching YouTube alone. Instead of pausing to open a new tab, googling something, losing your place, and forgetting what you were thinking — you have a three-panel interface:
 
 ```
-┌────────────────┬───────────────────┬───────────────────────┐
-│  Video player  │  AI Chat          │  Notebook (TipTap)    │
-│  (YouTube)     │  (Claude)         │  (autosave)           │
-│                │                   │                       │
-│  [Transcript]  │                   │                       │
-│  [History  ]   │                   │                       │
-└────────────────┴───────────────────┴───────────────────────┘
+┌──────────────────────┬───────────────────┬───────────────────────┐
+│  Video player        │  AI Chat          │  Notebook (TipTap)    │
+│  (YouTube)           │  (Claude)         │  (autosave)           │
+│                      │                   │                       │
+│  [Chapters][Transc.] │                   │                       │
+└──────────────────────┴───────────────────┴───────────────────────┘
 ```
 
-- **Left:** YouTube video player with a collapsible transcript panel and watch history below
-- **Center:** AI chat powered by Claude — ask anything, get streaming answers, full conversation history persists per project
-- **Right:** Rich-text notebook that autosaves, one per project
+- **Left:** YouTube video player. Below it: a two-column transcript panel — chapters on the left, full transcript on the right — both synced to playback. Watch history accessible via a dropdown in the URL bar.
+- **Center:** AI chat powered by Claude — ask anything, get streaming markdown responses, full conversation history persists per project.
+- **Right:** Rich-text notebook that autosaves, one per project.
 
 ---
 
@@ -38,46 +37,55 @@ YT Tutor replaces the experience of watching YouTube alone. Instead of pausing t
 ### Video Player
 - Paste any YouTube URL (full URL, `youtu.be` short link, Shorts, embed URL, or bare video ID)
 - Video persists across page reloads — the same video reloads automatically at the timestamp you left it
-- Watch history recorded per project (video title + time watched)
+- Watch history recorded per project; accessible via the clock icon button in the URL bar (dropdown, lazy-loaded)
 
 ### AI Chat
 - Powered by Claude (`claude-sonnet-4-6`) with streaming responses (up to 4096 tokens)
-- **"Start conversation" button** — when a video is loaded, click to kick off the session; Claude generates 4 suggested questions tailored to what you've watched so far
-- **Suggestion chips** — appear above the input; click to pre-fill the textarea (editable before sending); refresh at any time with the "Suggest" button in the header
+- **"Start conversation" button** — when a video is loaded, click to kick off the session; Claude generates 4 suggested questions and, if a transcript is available, automatically generates video chapters
+- **Suggestion chips** — appear above the input; click to pre-fill the textarea (editable before sending); refresh at any time with the "Suggest" button
+- Suggestions are context-aware: on a fresh start Claude picks broad, interesting questions freely; once chapters exist, suggestions focus on the current chapter; with conversation history, they build on what's been discussed
 - **Open knowledge (default):** Claude uses both the full video transcript and its general knowledge
-- **Video only:** toggle on to restrict Claude strictly to what was said in the video — no outside knowledge drawn in
-- The full transcript is always sent as context (prompt-cached for efficiency — after the first message in a session, transcript tokens cost 10% of normal)
-- Claude always knows your current playback position and treats content past that timestamp as unseen
+- **Video only (toggle):** Restricts Claude to the video as the sole source — draws on the full transcript (including content you haven't reached yet), but brings in no outside knowledge
+- The full transcript is always sent as context (prompt-cached — after the first message, transcript tokens cost 10% of normal)
 - Chat history is a continuous log across all videos watched in a project
-- When you load a new video, a system message appears inline: *"Started watching: Video Title"* — gives the thread a timeline feel as you scroll back
+- When you load a new video, a system message appears inline: *"Started watching: Video Title"*
 - Assistant responses render as markdown (bold, lists, code blocks, tables, etc.)
+- **Copy to notebook** — hover any AI response to reveal a "→ Notebook" button; copies the full message with markdown formatting preserved (bold, lists, headings, code blocks all transfer as rich text)
+- Text selection in chat also pops up a "Copy to notebook" button for partial copies
 - Graceful error handling for API credit issues, rate limits, and network errors
+
+### Chapters
+- Auto-generated when you click "Start conversation" (requires a transcript)
+- Claude analyses the full transcript and identifies 4–8 topic chapters with titles and timestamps
+- Displayed in the left column of the transcript panel; clicking any chapter seeks the player to that point
+- Active chapter highlighted and auto-scrolled as the video plays
+- Timestamps display as `m:ss` or `h:mm:ss` depending on video length
+- Chapters reset automatically when a new video is loaded
 
 ### Transcript Panel
 - Auto-fetched when a video loads
 - Two-stage fetch: direct scrape of YouTube's caption data first; falls back to `yt-dlp` for videos where YouTube's session-bound URLs block server-side access
 - Collapsible — toggled via the "Transcript" tab below the player
-- Active segment highlighted in yellow and auto-scrolled to as the video plays
+- Two-column layout when chapters are available: chapters on the left, full transcript on the right
+- Active segment highlighted with a blue left-border indicator and auto-scrolled to as the video plays
 - Pauses auto-scroll for 5 seconds when you manually scroll, then resumes
 - **Click any line to jump the video to that timestamp**
-- Text is selectable and copyable
-- Falls back gracefully when transcripts are unavailable (e.g. videos without captions)
+- Text is selectable
 
 ### Copy to Notebook
-- Select any text in the chat — a **"Copy to notebook"** button floats above your selection
-- One click appends the selected text as a new paragraph in the notebook and triggers autosave
-- No reformatting, no interruption to your flow
+- **Per-message button:** hover any AI response → "→ Notebook" appears; copies the full message as formatted rich text (markdown preserved — bullets become real lists, bold stays bold, etc.)
+- **Selection popup:** select any text in the chat → "Copy to notebook" floats above your selection; appends as plain text
+- Both methods append to the end of the current notebook and trigger autosave
 
 ### Notebook
 - Rich text editor (TipTap) with a formatting toolbar: bold, italic, strikethrough, H1/H2, bullet lists, ordered lists, blockquotes, inline code
 - Debounced autosave — saves 800ms after you stop typing, silently in the background
-- "Saved / Saving… / Unsaved" status indicator in the header
+- "saved / saving… / unsaved" status indicator in the header
 - One notebook per project; content persists across sessions
-- Accepts text appended programmatically via the copy-to-notebook feature
 
 ### Watch History
 - Per-project list of every video watched, with relative timestamps ("5m ago", "2h ago")
-- Accessible via the "History" tab below the video player
+- Accessible via the clock icon button to the left of the YouTube URL input (opens a dropdown)
 - Each entry links to the video on YouTube (opens in a new tab)
 - Refreshes automatically when a new video loads
 
@@ -99,6 +107,7 @@ YT Tutor replaces the experience of watching YouTube alone. Instead of pausing t
 | Transcripts & metadata | YouTube Data API v3 + yt-dlp fallback |
 | Rich text | TipTap 3 with StarterKit |
 | Markdown rendering | react-markdown + remark-gfm |
+| Markdown → rich text | unified + remark-parse + remark-gfm (mdast → HTML → TipTap) |
 | Process manager | PM2 (VPS deployment) |
 
 ---
@@ -230,7 +239,8 @@ src/
     api/
       auth/                    NextAuth handler
       chat/                    Streaming Claude API route
-        suggest/               POST — generate 4 suggested questions
+        suggest/               POST — generate context-aware suggested questions
+        chapters/              POST — generate topic chapters from transcript
       projects/                GET all projects, POST new project
       projects/[id]/           PATCH (rename, set current video), DELETE project
         messages/              GET + POST chat messages for a project
@@ -238,16 +248,17 @@ src/
         watch-history/         GET + POST watch history
       youtube/[videoId]/       GET video title + transcript (server-side proxy)
   components/
-    ProjectTabBar.tsx           Top tab bar — list, create, rename projects
-    ProjectClient.tsx           Client shell — shared video/transcript/player state
-    VideoPanel.tsx              YouTube IFrame player + URL bar + timestamp persistence
-    TranscriptPanel.tsx         Timestamp-synced transcript with auto-scroll
+    ProjectTabBar.tsx           Top tab bar — list, create, rename, delete projects
+    ProjectClient.tsx           Client shell — shared video/transcript/chapter/player state
+    VideoPanel.tsx              YouTube IFrame player + URL bar + history dropdown + timestamp persistence
+    TranscriptPanel.tsx         Two-column layout: chapters (left) + timestamp-synced transcript (right)
     ChatPanel.tsx               Streaming AI chat, suggestions, video-only toggle, copy-to-notebook
-    NotebookPanel.tsx           TipTap editor — toolbar, autosave, exposes appendText
-    WatchHistoryPanel.tsx       Per-project list of watched videos with relative times
+    NotebookPanel.tsx           TipTap editor — toolbar, autosave, appendText + appendMarkdown
+    WatchHistoryPanel.tsx       (used inside VideoPanel dropdown) per-project watched videos
   lib/
-    youtube.ts                  Client-safe helpers (parseVideoId, types)
+    youtube.ts                  Client-safe helpers (parseVideoId, TranscriptSegment, Chapter types)
     youtube.server.ts           Server-only transcript + metadata fetch (Node.js + yt-dlp)
+    markdownToTiptap.ts         Markdown → HTML via mdast walk; used for rich-text notebook insertion
     prisma.ts                   Prisma singleton with absolute DB path resolution
   auth.ts                       NextAuth v5 config (credentials provider)
   proxy.ts                      Auth middleware — redirects unauthenticated requests

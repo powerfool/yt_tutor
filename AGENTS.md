@@ -120,6 +120,10 @@ pm2 logs yt-tutor          # view logs
 - **Prisma client singleton:** Import only from `src/lib/prisma.ts`. Never instantiate `new PrismaClient()` elsewhere — hot reload creates too many connections.
 - **Dark mode:** Use `next-themes` with `attribute="class"` and `defaultTheme="system"`. Apply `dark:` Tailwind classes on components.
 
+## Auth — Critical Patterns
+
+- **bcrypt hash in .env:** Escape every `$` with `\$` — Next.js uses `dotenv-expand` which expands `$vars` even inside single quotes. Correct format: `ADMIN_PASSWORD_HASH=\$2b\$10\$...` (no quotes).
+
 ## Prisma 6 — Critical Patterns
 
 - **Import path:** `import { PrismaClient } from "@/generated/prisma/client"` — NOT `@/generated/prisma` (no index.ts in v6).

@@ -2,6 +2,7 @@
 
 import { useRef, useState } from "react";
 import VideoPanel from "@/components/VideoPanel";
+import ChatPanel from "@/components/ChatPanel";
 import { TranscriptSegment } from "@/lib/youtube";
 
 type YTPlayer = { getCurrentTime: () => number; destroy: () => void };
@@ -37,14 +38,12 @@ export default function ProjectClient({ projectId }: Props) {
 
       {/* Center: Chat */}
       <div className="flex flex-col w-[35%] border-r border-gray-200 dark:border-gray-800">
-        <div className="flex-1 flex flex-col items-center justify-center text-gray-400 text-sm gap-1">
-          <span>AI chat</span>
-          {videoTitle && (
-            <span className="text-xs text-gray-300 dark:text-gray-600">
-              Watching: {videoTitle}
-            </span>
-          )}
-        </div>
+        <ChatPanel
+          projectId={projectId}
+          videoId={videoId}
+          videoTitle={videoTitle}
+          transcript={transcript}
+        />
       </div>
 
       {/* Right: Notebook */}

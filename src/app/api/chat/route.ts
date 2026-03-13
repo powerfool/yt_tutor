@@ -82,18 +82,25 @@ export async function POST(req: NextRequest) {
     let userMessage = "Something went wrong with the AI. Please try again.";
     let httpStatus = 500;
 
-    if (status === 401) {
+    const rawMessage = (err as { error?: { error?: { message?: string } } })?.error?.error?.message ?? "";
+
+    if (status === 400 && rawMessage.toLowerCase().includes("credit")) {
+      userMessage = "Credit balance too low. Please top up your Anthropic account at console.anthropic.com → Plans & Billing.";
+      httpStatus = 402;
+    } else if (status === 401) {
       userMessage = "Invalid API key. Check your ANTHROPIC_API_KEY.";
       httpStatus = 401;
     } else if (status === 403) {
       userMessage = "Access denied. Your API key may lack permissions.";
       httpStatus = 403;
     } else if (status === 429) {
-      userMessage = "Rate limit or credit limit reached. Please check your Anthropic account balance.";
+      userMessage = "Rate limited. Please wait a moment and try again.";
       httpStatus = 429;
     } else if (status === 529) {
       userMessage = "Anthropic API is overloaded. Please try again in a moment.";
       httpStatus = 503;
+    } else if (rawMessage) {
+      userMessage = `API error: ${rawMessage}`;
     }
 
     return NextResponse.json({ error: userMessage }, { status: httpStatus });

@@ -23,6 +23,7 @@ YT Tutor replaces the experience of watching YouTube alone. Instead of pausing t
 - **Center:** AI chat powered by Claude — ask anything, get streaming markdown responses, full conversation history persists per project.
 - **Right:** Rich-text notebook that autosaves, one per project.
 
+![Screenshot](/screenshot.png "Screenshot")
 ---
 
 ## Features

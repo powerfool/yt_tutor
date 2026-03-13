@@ -17,8 +17,15 @@ export default function ProjectClient({ projectId, initialVideoId }: Props) {
   const [videoId, setVideoId] = useState<string | null>(null);
   const [videoTitle, setVideoTitle] = useState<string | null>(null);
   const [transcript, setTranscript] = useState<TranscriptSegment[] | null>(null);
-  const [transcriptOpen, setTranscriptOpen] = useState(false);
   const [chapters, setChapters] = useState<Chapter[]>([]);
+  const [videoLoading, setVideoLoading] = useState(false);
+
+  function handleVideoLoadStart() {
+    setVideoLoading(true);
+    setTranscript(null);
+    setChapters([]);
+    setVideoTitle(null);
+  }
 
   function handleVideoLoad(
     id: string,
@@ -26,16 +33,15 @@ export default function ProjectClient({ projectId, initialVideoId }: Props) {
     segments: TranscriptSegment[] | null,
     savedChapters: Chapter[] | null
   ) {
+    setVideoLoading(false);
     setVideoId(id);
     setVideoTitle(title);
     setTranscript(segments);
     setChapters(savedChapters && savedChapters.length > 0 ? savedChapters : []);
-    setTranscriptOpen(!!segments && segments.length > 0);
   }
 
   function handleChaptersGenerated(newChapters: Chapter[]) {
     setChapters(newChapters);
-    // Persist generated chapters to watch history
     if (videoId) {
       fetch(`/api/projects/${projectId}/watch-history`, {
         method: "PATCH",
@@ -45,49 +51,31 @@ export default function ProjectClient({ projectId, initialVideoId }: Props) {
     }
   }
 
-  const hasTranscript = !!transcript && transcript.length > 0;
-
   return (
     <div className="flex flex-1 overflow-hidden">
-      {/* Left: Video + transcript */}
+      {/* Left: Video + transcript (always visible) */}
       <div className="flex flex-col w-[40%] border-r border-gray-200 dark:border-gray-800">
-        {/* Video */}
-        <div className={transcriptOpen ? "h-[55%]" : "flex-1"}>
+        {/* Video — fixed height */}
+        <div className="h-[55%] shrink-0">
           <VideoPanel
             projectId={projectId}
             initialVideoId={initialVideoId}
+            onVideoLoadStart={handleVideoLoadStart}
             onVideoLoad={handleVideoLoad}
             playerRef={playerRef}
           />
         </div>
 
-        {/* Transcript tab */}
-        <div className="shrink-0 flex items-end border-t border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900">
-          <button
-            onClick={() => setTranscriptOpen((v) => !v)}
-            disabled={!hasTranscript}
-            title={!hasTranscript && !!videoId ? "Transcript unavailable" : undefined}
-            style={{ marginBottom: "-1px" }}
-            className={`px-4 py-2 text-[11px] font-medium tracking-widest uppercase border-b-2 transition-colors disabled:opacity-30 disabled:cursor-not-allowed ${
-              transcriptOpen
-                ? "border-blue-500 text-blue-600 dark:text-blue-400 bg-white dark:bg-gray-950"
-                : "border-transparent text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800"
-            }`}
-          >
-            Transcript
-          </button>
+        {/* Transcript — always visible */}
+        <div className="flex-1 overflow-hidden border-t border-gray-200 dark:border-gray-800">
+          <TranscriptPanel
+            transcript={transcript ?? []}
+            playerRef={playerRef}
+            chapters={chapters}
+            loading={videoLoading}
+            hasVideo={!!videoId || videoLoading}
+          />
         </div>
-
-        {/* Transcript panel */}
-        {transcriptOpen && hasTranscript && (
-          <div className="flex-1 overflow-hidden border-t border-gray-200 dark:border-gray-800">
-            <TranscriptPanel
-              transcript={transcript!}
-              playerRef={playerRef}
-              chapters={chapters}
-            />
-          </div>
-        )}
       </div>
 
       {/* Center: Chat */}
@@ -98,6 +86,7 @@ export default function ProjectClient({ projectId, initialVideoId }: Props) {
           videoTitle={videoTitle}
           transcript={transcript}
           playerRef={playerRef}
+          videoLoading={videoLoading}
           onCopyToNotebook={(text) => notebookRef.current?.appendText(text)}
           onCopyMarkdownToNotebook={(md) => notebookRef.current?.appendMarkdown(md)}
           onChaptersGenerated={handleChaptersGenerated}

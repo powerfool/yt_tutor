@@ -25,16 +25,17 @@ type Props = {
   videoTitle: string | null;
   transcript: TranscriptSegment[] | null;
   playerRef: React.MutableRefObject<YTPlayer | null>;
+  videoLoading?: boolean;
   onCopyToNotebook?: (text: string) => void;
   onCopyMarkdownToNotebook?: (markdown: string) => void;
   onChaptersGenerated?: (chapters: Chapter[]) => void;
   chapters?: Chapter[];
 };
 
-export default function ChatPanel({ projectId, videoId, videoTitle, transcript, playerRef, onCopyToNotebook, onCopyMarkdownToNotebook, onChaptersGenerated, chapters }: Props) {
+export default function ChatPanel({ projectId, videoId, videoTitle, transcript, playerRef, videoLoading = false, onCopyToNotebook, onCopyMarkdownToNotebook, onChaptersGenerated, chapters }: Props) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
-  const [videoOnly, setVideoOnly] = useState(false);
+  const [videoOnly, setVideoOnly] = useState(true);
   const [streaming, setStreaming] = useState(false);
   const [selectionPopup, setSelectionPopup] = useState<SelectionPopup | null>(null);
   const [chatStarted, setChatStarted] = useState(false);
@@ -288,14 +289,14 @@ export default function ChatPanel({ projectId, videoId, videoTitle, transcript, 
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-2.5 border-b border-gray-200 dark:border-gray-800 shrink-0">
-        <span className="text-[11px] font-semibold tracking-widest uppercase text-gray-400 dark:text-gray-500">Chat</span>
+      <div className="flex items-center justify-between px-4 h-10 border-b border-gray-200 dark:border-gray-800 shrink-0">
+        <span className="text-[11px] font-semibold tracking-widest uppercase text-gray-500 dark:text-gray-400">Chat</span>
         <div className="flex items-center gap-1.5">
           {videoId && (
             <button
               onClick={fetchSuggestions}
               disabled={loadingSuggestions}
-              className="text-[11px] px-2.5 py-1 rounded-full border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:border-blue-400 hover:text-blue-600 dark:hover:text-blue-400 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              className="text-[11px] px-2.5 py-1 rounded-full border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:border-blue-400 hover:text-blue-600 dark:hover:text-blue-400 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
               title="Suggest questions"
             >
               {loadingSuggestions ? "…" : "Suggest"}
@@ -304,7 +305,7 @@ export default function ChatPanel({ projectId, videoId, videoTitle, transcript, 
           <button
             onClick={clearChat}
             disabled={messages.length === 0}
-            className="text-[11px] px-2.5 py-1 rounded-full border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:border-red-400 hover:text-red-500 dark:hover:text-red-400 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            className="text-[11px] px-2.5 py-1 rounded-full border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:border-red-400 hover:text-red-500 dark:hover:text-red-400 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             title="Clear all messages"
           >
             Clear
@@ -349,22 +350,6 @@ export default function ChatPanel({ projectId, videoId, videoTitle, transcript, 
         onMouseUp={handleMessagesMouseUp}
         className="flex-1 overflow-y-auto px-4 py-4 space-y-6"
       >
-        {/* Start conversation CTA */}
-        {!chatStarted && videoId && messages.filter((m) => (m.role === "user" || m.role === "assistant") && m.videoId === videoId).length === 0 && (
-          <div className="flex flex-col items-center justify-center h-full gap-3">
-            <p className="text-sm text-gray-400 dark:text-gray-500 text-center">
-              Ready to explore this video with AI
-            </p>
-            <button
-              onClick={startConversation}
-              disabled={loadingSuggestions}
-              className="px-5 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-60 text-white rounded-full text-sm font-medium transition-colors"
-            >
-              {loadingSuggestions ? "Loading suggestions…" : "Start conversation"}
-            </button>
-          </div>
-        )}
-
         {/* Placeholder — no video */}
         {!videoId && messages.length === 0 && (
           <p className="text-sm text-gray-400 dark:text-gray-500 text-center mt-8">
@@ -448,30 +433,44 @@ export default function ChatPanel({ projectId, videoId, videoTitle, transcript, 
         </div>
       )}
 
-      {/* Input */}
+      {/* Input or Start conversation */}
       <div className="px-3 py-3 border-t border-gray-200 dark:border-gray-800 shrink-0">
-        <div className="flex gap-2 items-end">
-          <textarea
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                sendMessage();
-              }
-            }}
-            placeholder="Ask anything… (Enter to send, Shift+Enter for new line)"
-            rows={2}
-            className="flex-1 px-3.5 py-2.5 text-sm rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500/60 transition-colors"
-          />
+        {videoLoading ? (
+          <p className="text-[12px] text-gray-400 dark:text-gray-500 text-center py-1 animate-pulse">
+            Loading video…
+          </p>
+        ) : !chatStarted && videoId ? (
           <button
-            onClick={sendMessage}
-            disabled={streaming || !input.trim()}
-            className="px-4 py-2.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-xl text-sm font-medium transition-colors shrink-0"
+            onClick={startConversation}
+            disabled={loadingSuggestions}
+            className="w-full py-2.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-60 text-white rounded-xl text-sm font-medium transition-colors"
           >
-            Send
+            {loadingSuggestions ? "Loading suggestions…" : "Start conversation"}
           </button>
-        </div>
+        ) : (
+          <div className="flex gap-2 items-end">
+            <textarea
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  sendMessage();
+                }
+              }}
+              placeholder="Ask anything… (Enter to send, Shift+Enter for new line)"
+              rows={2}
+              className="flex-1 px-3.5 py-2.5 text-sm rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500/60 transition-colors"
+            />
+            <button
+              onClick={sendMessage}
+              disabled={streaming || !input.trim()}
+              className="px-4 py-2.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-xl text-sm font-medium transition-colors shrink-0"
+            >
+              Send
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

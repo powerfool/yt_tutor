@@ -39,12 +39,13 @@ type HistoryEntry = {
 type Props = {
   projectId: string;
   initialVideoId: string | null;
+  onVideoLoadStart: () => void;
   onVideoLoad: (videoId: string, title: string, transcript: TranscriptSegment[] | null, savedChapters: Chapter[] | null) => void;
   playerRef: React.MutableRefObject<YTPlayer | null>;
 };
 
-function tsKey(projectId: string) {
-  return `yt_tutor_ts_${projectId}`;
+function tsKey(projectId: string, videoId: string) {
+  return `yt_tutor_ts_${projectId}_${videoId}`;
 }
 
 function relativeTime(dateStr: string) {
@@ -58,7 +59,7 @@ function relativeTime(dateStr: string) {
   return `${days}d ago`;
 }
 
-export default function VideoPanel({ projectId, initialVideoId, onVideoLoad, playerRef }: Props) {
+export default function VideoPanel({ projectId, initialVideoId, onVideoLoadStart, onVideoLoad, playerRef }: Props) {
   const [urlInput, setUrlInput] = useState("");
   const [videoId, setVideoId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -83,7 +84,7 @@ export default function VideoPanel({ projectId, initialVideoId, onVideoLoad, pla
 
   useEffect(() => {
     if (!initialVideoId) return;
-    const saved = localStorage.getItem(tsKey(projectId));
+    const saved = localStorage.getItem(tsKey(projectId, initialVideoId));
     pendingSeekRef.current = saved ? parseFloat(saved) : 0;
     shouldAutoplayRef.current = false;
     loadVideoById(initialVideoId);
@@ -106,7 +107,7 @@ export default function VideoPanel({ projectId, initialVideoId, onVideoLoad, pla
               e.target.seekTo(pendingSeekRef.current, true);
             }
             pendingSeekRef.current = null;
-            startTimestampSave();
+            startTimestampSave(videoId);
           },
         },
       });
@@ -124,14 +125,14 @@ export default function VideoPanel({ projectId, initialVideoId, onVideoLoad, pla
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [videoId, playerRef]);
 
-  function startTimestampSave() {
+  function startTimestampSave(vid: string) {
     if (tsIntervalRef.current) clearInterval(tsIntervalRef.current);
     tsIntervalRef.current = setInterval(() => {
       const player = ytPlayerRef.current;
       if (!player) return;
       try {
-        const t = player.getCurrentTime();
-        localStorage.setItem(tsKey(projectId), String(t));
+        const t = typeof player.getCurrentTime === "function" ? player.getCurrentTime() : 0;
+        localStorage.setItem(tsKey(projectId, vid), String(t));
       } catch {
         // ignore
       }
@@ -171,6 +172,7 @@ export default function VideoPanel({ projectId, initialVideoId, onVideoLoad, pla
   }
 
   async function loadVideoById(id: string) {
+    onVideoLoadStart();
     setError("");
     setLoading(true);
     setVideoId(id);
@@ -249,9 +251,9 @@ export default function VideoPanel({ projectId, initialVideoId, onVideoLoad, pla
       setError("Couldn't parse a YouTube video ID from that URL.");
       return;
     }
-    localStorage.removeItem(tsKey(projectId));
-    pendingSeekRef.current = null;
-    shouldAutoplayRef.current = true;
+    const saved = localStorage.getItem(tsKey(projectId, id));
+    pendingSeekRef.current = saved ? parseFloat(saved) : null;
+    shouldAutoplayRef.current = false;
     await loadVideoById(id);
   }
 
@@ -259,7 +261,7 @@ export default function VideoPanel({ projectId, initialVideoId, onVideoLoad, pla
     <div className="flex flex-col h-full">
       {/* URL bar */}
       <div className="relative" ref={historyDropdownRef}>
-        <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900">
+        <div className="flex items-center gap-2 px-3 h-10 border-b border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900">
           {/* History button */}
           <button
             onClick={toggleHistory}
@@ -313,9 +315,9 @@ export default function VideoPanel({ projectId, initialVideoId, onVideoLoad, pla
                       key={entry.id}
                       onClick={() => {
                         setHistoryOpen(false);
-                        localStorage.removeItem(tsKey(projectId));
-                        pendingSeekRef.current = null;
-                        shouldAutoplayRef.current = true;
+                        const saved = localStorage.getItem(tsKey(projectId, entry.videoId));
+                        pendingSeekRef.current = saved ? parseFloat(saved) : null;
+                        shouldAutoplayRef.current = false;
                         loadVideoById(entry.videoId);
                       }}
                       className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-800 group transition-colors text-left"

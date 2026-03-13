@@ -9,6 +9,8 @@ type Props = {
   transcript: TranscriptSegment[];
   playerRef: React.MutableRefObject<YTPlayer | null>;
   chapters?: Chapter[];
+  loading?: boolean;
+  hasVideo?: boolean;
 };
 
 function formatTime(ms: number) {
@@ -28,7 +30,20 @@ function formatSec(sec: number) {
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
-export default function TranscriptPanel({ transcript, playerRef, chapters = [] }: Props) {
+function SkeletonLines() {
+  return (
+    <div className="px-3 py-3 space-y-2 animate-pulse">
+      {[70, 90, 55, 80, 65, 85, 50, 75].map((w, i) => (
+        <div key={i} className="flex gap-2 items-start">
+          <div className="shrink-0 h-3 w-10 rounded bg-gray-200 dark:bg-gray-700 mt-0.5" />
+          <div className={`h-3 rounded bg-gray-200 dark:bg-gray-700`} style={{ width: `${w}%` }} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export default function TranscriptPanel({ transcript, playerRef, chapters = [], loading = false, hasVideo = false }: Props) {
   const [currentTime, setCurrentTime] = useState(0);
   const activeSegRef = useRef<HTMLDivElement>(null);
   const activeChapterRef = useRef<HTMLButtonElement>(null);
@@ -61,12 +76,10 @@ export default function TranscriptPanel({ transcript, playerRef, chapters = [] }
     const container = transcriptScrollRef.current;
     const el = activeSegRef.current;
     if (!container || !el) return;
-    // Use getBoundingClientRect for accurate position within the scroll container
     const containerRect = container.getBoundingClientRect();
     const elRect = el.getBoundingClientRect();
     const elTopRelative = elRect.top - containerRect.top;
     const containerH = container.clientHeight;
-    // Scroll if element is above the top or below 65% of the visible area
     if (elTopRelative < 0 || elTopRelative > containerH * 0.65) {
       container.scrollTo({
         top: container.scrollTop + elTopRelative - containerH * 0.25,
@@ -88,6 +101,50 @@ export default function TranscriptPanel({ transcript, playerRef, chapters = [] }
     }, 5000);
   }
 
+  // Loading skeleton
+  if (loading) {
+    return (
+      <div className="flex h-full overflow-hidden">
+        {/* Chapters skeleton */}
+        <div className="w-40 shrink-0 border-r border-gray-200 dark:border-gray-800 flex flex-col bg-gray-50 dark:bg-gray-900">
+          <div className="px-3 py-2 border-b border-gray-200 dark:border-gray-800 shrink-0">
+            <span className="text-[10px] font-semibold tracking-widest uppercase text-gray-500 dark:text-gray-400">Chapters</span>
+          </div>
+          <div className="px-3 py-3 space-y-3 animate-pulse">
+            {[60, 80, 50, 70, 45].map((w, i) => (
+              <div key={i} className="space-y-1">
+                <div className="h-2 w-8 rounded bg-gray-200 dark:bg-gray-700" />
+                <div className={`h-3 rounded bg-gray-200 dark:bg-gray-700`} style={{ width: `${w}%` }} />
+              </div>
+            ))}
+          </div>
+        </div>
+        {/* Transcript skeleton */}
+        <div className="flex flex-1 flex-col overflow-hidden">
+          <SkeletonLines />
+        </div>
+      </div>
+    );
+  }
+
+  // No video loaded yet
+  if (!hasVideo) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <p className="text-[13px] text-gray-500 dark:text-gray-400">Load a video to see the transcript</p>
+      </div>
+    );
+  }
+
+  // Video loaded but no transcript
+  if (transcript.length === 0) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <p className="text-[13px] text-gray-500 dark:text-gray-400">No transcript available</p>
+      </div>
+    );
+  }
+
   const transcriptContent = (
     <div
       ref={transcriptScrollRef}
@@ -103,7 +160,7 @@ export default function TranscriptPanel({ transcript, playerRef, chapters = [] }
             onClick={() => playerRef.current?.seekTo(seg.offset / 1000, true)}
             className={`flex gap-2 rounded-lg px-2 py-1.5 transition-all select-text cursor-pointer border-l-2 ${
               isActive
-                ? "border-blue-500 bg-blue-50 dark:bg-blue-950/30 text-gray-900 dark:text-gray-100"
+                ? "border-blue-500 bg-blue-50 dark:bg-blue-950/60 text-gray-900 dark:text-gray-100"
                 : "border-transparent text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/60 hover:text-gray-800 dark:hover:text-gray-200"
             }`}
           >
@@ -124,7 +181,7 @@ export default function TranscriptPanel({ transcript, playerRef, chapters = [] }
         {/* Left: Chapters */}
         <div className="w-40 shrink-0 border-r border-gray-200 dark:border-gray-800 flex flex-col bg-gray-50 dark:bg-gray-900">
           <div className="px-3 py-2 border-b border-gray-200 dark:border-gray-800 shrink-0">
-            <span className="text-[10px] font-semibold tracking-widest uppercase text-gray-400 dark:text-gray-500">
+            <span className="text-[10px] font-semibold tracking-widest uppercase text-gray-500 dark:text-gray-400">
               Chapters
             </span>
           </div>
@@ -138,11 +195,11 @@ export default function TranscriptPanel({ transcript, playerRef, chapters = [] }
                   onClick={() => playerRef.current?.seekTo(chapter.startTimeSec, true)}
                   className={`w-full text-left px-3 py-2.5 transition-colors border-l-2 ${
                     isActive
-                      ? "border-blue-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
-                      : "border-transparent text-gray-500 dark:text-gray-400 hover:bg-white dark:hover:bg-gray-800 hover:text-gray-800 dark:hover:text-gray-200"
+                      ? "border-blue-500 bg-blue-50 dark:bg-blue-950/60 text-blue-800 dark:text-blue-200"
+                      : "border-transparent text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/60 hover:text-gray-800 dark:hover:text-gray-200"
                   }`}
                 >
-                  <div className="text-[10px] font-mono text-gray-400 dark:text-gray-500 mb-0.5 tabular-nums">
+                  <div className={`text-[10px] font-mono mb-0.5 tabular-nums ${isActive ? "text-blue-500 dark:text-blue-400" : "text-gray-400 dark:text-gray-500"}`}>
                     {formatSec(chapter.startTimeSec)}
                   </div>
                   <div className="text-[12px] leading-snug font-medium">
@@ -162,7 +219,7 @@ export default function TranscriptPanel({ transcript, playerRef, chapters = [] }
     );
   }
 
-  // Single-column layout (no chapters yet)
+  // Single-column layout (no chapters)
   return (
     <div className="flex flex-col h-full overflow-hidden">
       {transcriptContent}

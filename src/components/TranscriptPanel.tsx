@@ -39,7 +39,7 @@ export default function TranscriptPanel({ transcript, playerRef, chapters = [] }
   // Poll player time every second
   useEffect(() => {
     const interval = setInterval(() => {
-      const t = (playerRef.current?.getCurrentTime() ?? 0) * 1000;
+      const t = (typeof playerRef.current?.getCurrentTime === "function" ? playerRef.current.getCurrentTime() : 0) * 1000;
       setCurrentTime(t);
     }, 1000);
     return () => clearInterval(interval);

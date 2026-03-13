@@ -3,13 +3,20 @@ import { prisma } from "@/lib/prisma";
 import { NextRequest, NextResponse } from "next/server";
 
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const session = await auth();
   if (!session) return new NextResponse(null, { status: 401 });
 
   const { id: projectId } = await params;
+  const videoId = req.nextUrl.searchParams.get("videoId");
+
+  if (videoId) {
+    // Cache lookup for a specific video
+    const entry = await prisma.watchHistory.findFirst({ where: { projectId, videoId } });
+    return NextResponse.json(entry ?? null);
+  }
 
   const entries = await prisma.watchHistory.findMany({
     where: { projectId },
@@ -29,10 +36,7 @@ export async function POST(
   const { id: projectId } = await params;
   const { videoId, videoTitle } = await req.json();
 
-  // Upsert: update existing entry if video was watched before, otherwise create
-  const existing = await prisma.watchHistory.findFirst({
-    where: { projectId, videoId },
-  });
+  const existing = await prisma.watchHistory.findFirst({ where: { projectId, videoId } });
 
   let entry;
   if (existing) {
@@ -57,20 +61,15 @@ export async function PATCH(
   if (!session) return new NextResponse(null, { status: 401 });
 
   const { id: projectId } = await params;
-  const { videoId, chapters } = await req.json();
+  const { videoId, chapters, transcript } = await req.json();
 
-  const existing = await prisma.watchHistory.findFirst({
-    where: { projectId, videoId },
-  });
+  const existing = await prisma.watchHistory.findFirst({ where: { projectId, videoId } });
+  if (!existing) return new NextResponse(null, { status: 404 });
 
-  if (!existing) {
-    return new NextResponse(null, { status: 404 });
-  }
+  const data: Record<string, string> = {};
+  if (chapters !== undefined) data.chaptersJson = JSON.stringify(chapters);
+  if (transcript !== undefined) data.transcriptJson = JSON.stringify(transcript);
 
-  const entry = await prisma.watchHistory.update({
-    where: { id: existing.id },
-    data: { chaptersJson: JSON.stringify(chapters) },
-  });
-
+  const entry = await prisma.watchHistory.update({ where: { id: existing.id }, data });
   return NextResponse.json(entry);
 }

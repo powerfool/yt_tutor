@@ -176,29 +176,56 @@ export default function VideoPanel({ projectId, initialVideoId, onVideoLoad, pla
     setVideoId(id);
 
     try {
-      const res = await fetch(`/api/youtube/${id}`);
-      const { title, transcript, ytChapters } = await res.json();
+      // Check DB cache first
+      const cacheRes = await fetch(`/api/projects/${projectId}/watch-history?videoId=${id}`);
+      const cached = cacheRes.ok ? await cacheRes.json() : null;
 
-      const historyRes = await fetch(`/api/projects/${projectId}/watch-history`, {
+      const savedTranscript: TranscriptSegment[] | null =
+        cached?.transcriptJson ? JSON.parse(cached.transcriptJson) : null;
+      const savedChapters: Chapter[] | null =
+        cached?.chaptersJson ? JSON.parse(cached.chaptersJson) : null;
+
+      let title: string;
+      let transcript: TranscriptSegment[] | null;
+      let chaptersToUse: Chapter[] | null = savedChapters;
+
+      if (savedTranscript && cached?.videoTitle) {
+        // Fully cached — no YouTube API call needed
+        title = cached.videoTitle;
+        transcript = savedTranscript;
+      } else {
+        // Fetch from YouTube
+        const res = await fetch(`/api/youtube/${id}`);
+        const data = await res.json();
+        title = data.title;
+        transcript = data.transcript;
+
+        // Persist transcript
+        if (transcript) {
+          fetch(`/api/projects/${projectId}/watch-history`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ videoId: id, transcript }),
+          });
+        }
+
+        // Use YouTube description chapters if nothing saved yet
+        if (!savedChapters && data.ytChapters?.length > 0) {
+          chaptersToUse = data.ytChapters;
+          fetch(`/api/projects/${projectId}/watch-history`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ videoId: id, chapters: data.ytChapters }),
+          });
+        }
+      }
+
+      // Update watchedAt (and create entry if first time)
+      fetch(`/api/projects/${projectId}/watch-history`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ videoId: id, videoTitle: title }),
       });
-      const historyEntry = historyRes.ok ? await historyRes.json() : null;
-      const savedChapters: Chapter[] | null =
-        historyEntry?.chaptersJson ? JSON.parse(historyEntry.chaptersJson) : null;
-
-      // Priority: DB-saved > YouTube description > null (Claude will generate)
-      const chaptersToUse: Chapter[] | null = savedChapters ?? ytChapters ?? null;
-
-      // If YouTube has chapters but DB doesn't yet, persist them now
-      if (!savedChapters && ytChapters && ytChapters.length > 0) {
-        fetch(`/api/projects/${projectId}/watch-history`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ videoId: id, chapters: ytChapters }),
-        });
-      }
 
       fetch(`/api/projects/${projectId}`, {
         method: "PATCH",
@@ -208,7 +235,6 @@ export default function VideoPanel({ projectId, initialVideoId, onVideoLoad, pla
 
       onVideoLoad(id, title, transcript, chaptersToUse);
 
-      // Refresh history silently if it was ever loaded
       if (historyLoaded) fetchHistory();
     } catch {
       setError("Failed to load video info. The video will still play.");

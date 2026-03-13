@@ -32,6 +32,7 @@ export default function TranscriptPanel({ transcript, playerRef, chapters = [] }
   const [currentTime, setCurrentTime] = useState(0);
   const activeSegRef = useRef<HTMLDivElement>(null);
   const activeChapterRef = useRef<HTMLButtonElement>(null);
+  const transcriptScrollRef = useRef<HTMLDivElement>(null);
   const userScrolledTranscriptRef = useRef(false);
   const scrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -54,10 +55,19 @@ export default function TranscriptPanel({ transcript, playerRef, chapters = [] }
     return ch.startTimeSec * 1000 <= currentTime ? i : best;
   }, 0);
 
-  // Auto-scroll transcript to active segment
+  // Auto-scroll transcript container to keep active segment in view
   useEffect(() => {
     if (userScrolledTranscriptRef.current) return;
-    activeSegRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    const container = transcriptScrollRef.current;
+    const el = activeSegRef.current;
+    if (!container || !el) return;
+    const elTop = el.offsetTop;
+    const containerH = container.clientHeight;
+    const scrollTop = container.scrollTop;
+    // Scroll if element is outside the top 65% of the visible area
+    if (elTop < scrollTop || elTop > scrollTop + containerH * 0.65) {
+      container.scrollTo({ top: Math.max(0, elTop - containerH * 0.25), behavior: "smooth" });
+    }
   }, [activeSegIdx]);
 
   // Auto-scroll chapters to active chapter
@@ -75,6 +85,7 @@ export default function TranscriptPanel({ transcript, playerRef, chapters = [] }
 
   const transcriptContent = (
     <div
+      ref={transcriptScrollRef}
       className="overflow-y-auto flex-1 px-2 py-2 space-y-px"
       onScroll={handleTranscriptScroll}
     >
@@ -91,7 +102,7 @@ export default function TranscriptPanel({ transcript, playerRef, chapters = [] }
                 : "border-transparent text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/60 hover:text-gray-800 dark:hover:text-gray-200"
             }`}
           >
-            <span className="shrink-0 text-[11px] text-gray-400 dark:text-gray-500 mt-0.5 w-8 text-right font-mono tabular-nums">
+            <span className="shrink-0 text-[11px] text-gray-400 dark:text-gray-500 mt-0.5 w-14 text-right font-mono tabular-nums">
               {formatTime(seg.offset)}
             </span>
             <span className="text-[13px] leading-snug">{seg.text}</span>

@@ -4,17 +4,42 @@ import { promisify } from "util";
 import { readFile, unlink, readdir } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
-import type { TranscriptSegment } from "./youtube";
+import type { TranscriptSegment, Chapter } from "./youtube";
 
 const execFileAsync = promisify(execFile);
 
-/** Fetch video title from YouTube Data API v3. */
-export async function fetchVideoTitle(videoId: string): Promise<string> {
+/** Parse YouTube-style chapters from a video description.
+ *  Each chapter line must start with a timestamp (0:00, 1:30, 1:00:00).
+ *  Returns null if fewer than 3 chapters are found. */
+function parseChaptersFromDescription(description: string): Chapter[] | null {
+  const chapters: Chapter[] = [];
+  for (const line of description.split("\n")) {
+    const m = line.trim().match(/^(?:(\d+):)?(\d{1,2}):(\d{2})[\s\-–—•|:]+(.+)/);
+    if (!m) continue;
+    const h = m[1] ? parseInt(m[1]) : 0;
+    const min = parseInt(m[2]);
+    const sec = parseInt(m[3]);
+    const title = m[4].trim();
+    if (title) chapters.push({ title, startTimeSec: h * 3600 + min * 60 + sec });
+  }
+  return chapters.length >= 3 ? chapters : null;
+}
+
+/** Fetch video title + any chapters embedded in the description. */
+export async function fetchVideoInfo(videoId: string): Promise<{ title: string; ytChapters: Chapter[] | null }> {
   const apiKey = process.env.YOUTUBE_API_KEY;
   const url = `https://www.googleapis.com/youtube/v3/videos?part=snippet&id=${videoId}&key=${apiKey}`;
   const res = await fetch(url);
   const data = await res.json();
-  return data.items?.[0]?.snippet?.title ?? "Untitled video";
+  const snippet = data.items?.[0]?.snippet;
+  const title = snippet?.title ?? "Untitled video";
+  const ytChapters = parseChaptersFromDescription(snippet?.description ?? "");
+  return { title, ytChapters };
+}
+
+/** @deprecated Use fetchVideoInfo */
+export async function fetchVideoTitle(videoId: string): Promise<string> {
+  return (await fetchVideoInfo(videoId)).title;
 }
 
 /** Fetch transcript segments. Returns null if unavailable. */

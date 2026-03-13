@@ -1,5 +1,5 @@
 import { auth } from "@/auth";
-import { fetchVideoTitle, fetchTranscript } from "@/lib/youtube.server";
+import { fetchVideoInfo, fetchTranscript } from "@/lib/youtube.server";
 import { NextRequest, NextResponse } from "next/server";
 
 export async function GET(
@@ -10,10 +10,10 @@ export async function GET(
   if (!session) return new NextResponse(null, { status: 401 });
 
   const { videoId } = await params;
-  const [title, transcript] = await Promise.all([
-    fetchVideoTitle(videoId),
+  const [{ title, ytChapters }, transcript] = await Promise.all([
+    fetchVideoInfo(videoId),
     fetchTranscript(videoId),
   ]);
 
-  return NextResponse.json({ title, transcript });
+  return NextResponse.json({ title, transcript, ytChapters });
 }

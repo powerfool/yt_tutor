@@ -177,7 +177,7 @@ export default function VideoPanel({ projectId, initialVideoId, onVideoLoad, pla
 
     try {
       const res = await fetch(`/api/youtube/${id}`);
-      const { title, transcript } = await res.json();
+      const { title, transcript, ytChapters } = await res.json();
 
       const historyRes = await fetch(`/api/projects/${projectId}/watch-history`, {
         method: "POST",
@@ -188,13 +188,25 @@ export default function VideoPanel({ projectId, initialVideoId, onVideoLoad, pla
       const savedChapters: Chapter[] | null =
         historyEntry?.chaptersJson ? JSON.parse(historyEntry.chaptersJson) : null;
 
+      // Priority: DB-saved > YouTube description > null (Claude will generate)
+      const chaptersToUse: Chapter[] | null = savedChapters ?? ytChapters ?? null;
+
+      // If YouTube has chapters but DB doesn't yet, persist them now
+      if (!savedChapters && ytChapters && ytChapters.length > 0) {
+        fetch(`/api/projects/${projectId}/watch-history`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ videoId: id, chapters: ytChapters }),
+        });
+      }
+
       fetch(`/api/projects/${projectId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ currentVideoId: id }),
       });
 
-      onVideoLoad(id, title, transcript, savedChapters);
+      onVideoLoad(id, title, transcript, chaptersToUse);
 
       // Refresh history silently if it was ever loaded
       if (historyLoaded) fetchHistory();

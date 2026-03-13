@@ -1,7 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { TranscriptSegment } from "@/lib/youtube";
+
+type YTPlayer = { getCurrentTime: () => number; seekTo: (s: number, a: boolean) => void; destroy: () => void };
 
 type Message = {
   id: string;
@@ -12,20 +16,26 @@ type Message = {
 
 type SelectionPopup = { text: string; x: number; y: number };
 
+type HistoryMessage = { role: "user" | "assistant"; content: string };
+
 type Props = {
   projectId: string;
   videoId: string | null;
   videoTitle: string | null;
   transcript: TranscriptSegment[] | null;
+  playerRef: React.MutableRefObject<YTPlayer | null>;
   onCopyToNotebook?: (text: string) => void;
 };
 
-export default function ChatPanel({ projectId, videoId, videoTitle, transcript, onCopyToNotebook }: Props) {
+export default function ChatPanel({ projectId, videoId, videoTitle, transcript, playerRef, onCopyToNotebook }: Props) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
-  const [videoFocus, setVideoFocus] = useState(false);
+  const [videoOnly, setVideoOnly] = useState(false);
   const [streaming, setStreaming] = useState(false);
   const [selectionPopup, setSelectionPopup] = useState<SelectionPopup | null>(null);
+  const [chatStarted, setChatStarted] = useState(false);
+  const [suggestions, setSuggestions] = useState<string[] | null>(null);
+  const [loadingSuggestions, setLoadingSuggestions] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const prevVideoIdRef = useRef<string | null>(null);
   const messagesRef = useRef<HTMLDivElement>(null);
@@ -37,10 +47,14 @@ export default function ChatPanel({ projectId, videoId, videoTitle, transcript, 
       .then(setMessages);
   }, [projectId]);
 
-  // Insert system message when video changes
+  // Insert system message + reset chat UI when video changes
   useEffect(() => {
     if (!videoId || videoId === prevVideoIdRef.current) return;
     prevVideoIdRef.current = videoId;
+
+    // Reset conversation starter state
+    setChatStarted(false);
+    setSuggestions(null);
 
     const systemMsg: Message = {
       id: crypto.randomUUID(),
@@ -49,7 +63,6 @@ export default function ChatPanel({ projectId, videoId, videoTitle, transcript, 
       videoId,
     };
 
-    // Persist to DB
     fetch(`/api/projects/${projectId}/messages`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -86,7 +99,6 @@ export default function ChatPanel({ projectId, videoId, videoTitle, transcript, 
   useEffect(() => {
     function onMouseDown(e: MouseEvent) {
       const target = e.target as Node;
-      // Don't dismiss if clicking the popup button itself
       if (
         target instanceof HTMLElement &&
         target.closest("[data-copy-popup]")
@@ -109,6 +121,41 @@ export default function ChatPanel({ projectId, videoId, videoTitle, transcript, 
     await fetch(`/api/projects/${projectId}/messages`, { method: "DELETE" });
     setMessages([]);
     prevVideoIdRef.current = null;
+    setChatStarted(false);
+    setSuggestions(null);
+  }
+
+  function buildHistory(): HistoryMessage[] {
+    return messages
+      .filter((m) => m.role === "user" || m.role === "assistant")
+      .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
+  }
+
+  async function fetchSuggestions() {
+    setLoadingSuggestions(true);
+    try {
+      const res = await fetch("/api/chat/suggest", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          transcript,
+          videoTitle,
+          currentTimeSec: playerRef.current?.getCurrentTime() ?? 0,
+          history: buildHistory(),
+        }),
+      });
+      if (res.ok) {
+        const { suggestions: s } = await res.json();
+        setSuggestions(s);
+      }
+    } finally {
+      setLoadingSuggestions(false);
+    }
+  }
+
+  async function startConversation() {
+    setChatStarted(true);
+    await fetchSuggestions();
   }
 
   async function sendMessage() {
@@ -116,22 +163,20 @@ export default function ChatPanel({ projectId, videoId, videoTitle, transcript, 
 
     const userText = input.trim();
     setInput("");
+    setSuggestions(null);
 
-    // Optimistically add user message
     const tempId = crypto.randomUUID();
     setMessages((prev) => [
       ...prev,
       { id: tempId, role: "user", content: userText, videoId },
     ]);
 
-    // Persist user message
     fetch(`/api/projects/${projectId}/messages`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ role: "user", content: userText, videoId }),
     });
 
-    // Stream assistant response
     setStreaming(true);
     const streamId = crypto.randomUUID();
     setMessages((prev) => [
@@ -139,14 +184,17 @@ export default function ChatPanel({ projectId, videoId, videoTitle, transcript, 
       { id: streamId, role: "assistant", content: "", videoId },
     ]);
 
-    const history = messages
-      .filter((m) => m.role === "user" || m.role === "assistant")
-      .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
-
     const res = await fetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message: userText, history, videoFocus, transcript, videoTitle }),
+      body: JSON.stringify({
+        message: userText,
+        history: buildHistory(),
+        videoOnly,
+        transcript,
+        videoTitle,
+        currentTimeSec: playerRef.current?.getCurrentTime() ?? 0,
+      }),
     });
 
     if (!res.ok) {
@@ -175,7 +223,6 @@ export default function ChatPanel({ projectId, videoId, videoTitle, transcript, 
 
     setStreaming(false);
 
-    // Persist assistant message
     fetch(`/api/projects/${projectId}/messages`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -189,6 +236,16 @@ export default function ChatPanel({ projectId, videoId, videoTitle, transcript, 
       <div className="flex items-center justify-between px-3 py-2 border-b border-gray-200 dark:border-gray-800 shrink-0">
         <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Chat</span>
         <div className="flex items-center gap-2">
+          {chatStarted && (
+            <button
+              onClick={fetchSuggestions}
+              disabled={loadingSuggestions || !videoId}
+              className="text-xs px-2 py-1 rounded-full border border-gray-300 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:border-blue-400 hover:text-blue-500 dark:hover:text-blue-400 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              title="Refresh suggestions"
+            >
+              {loadingSuggestions ? "…" : "Suggest"}
+            </button>
+          )}
           <button
             onClick={clearChat}
             disabled={messages.length === 0}
@@ -198,16 +255,16 @@ export default function ChatPanel({ projectId, videoId, videoTitle, transcript, 
             Clear
           </button>
           <button
-            onClick={() => setVideoFocus((v) => !v)}
+            onClick={() => setVideoOnly((v) => !v)}
             disabled={!videoId}
             className={`text-xs px-2 py-1 rounded-full border transition-colors ${
-              videoFocus
+              videoOnly
                 ? "bg-blue-100 dark:bg-blue-900 border-blue-300 dark:border-blue-700 text-blue-700 dark:text-blue-300"
                 : "border-gray-300 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:border-gray-400"
             } disabled:opacity-40 disabled:cursor-not-allowed`}
-            title={videoFocus ? "Focused on video transcript" : "Using full Claude knowledge"}
+            title={videoOnly ? "Strictly using video content only" : "Using video + general knowledge"}
           >
-            {videoFocus ? "Video focus on" : "Video focus off"}
+            {videoOnly ? "Video only" : "Open knowledge"}
           </button>
         </div>
       </div>
@@ -236,11 +293,29 @@ export default function ChatPanel({ projectId, videoId, videoTitle, transcript, 
         onMouseUp={handleMessagesMouseUp}
         className="flex-1 overflow-y-auto px-3 py-2 space-y-3"
       >
-        {messages.length === 0 && (
+        {/* Start conversation button — shown when video loaded but chat not started */}
+        {!chatStarted && videoId && messages.filter((m) => m.role !== "system").length === 0 && (
+          <div className="flex flex-col items-center justify-center h-full gap-3 mt-8">
+            <p className="text-sm text-gray-400 text-center">
+              Ready to explore this video with AI
+            </p>
+            <button
+              onClick={startConversation}
+              disabled={loadingSuggestions}
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white rounded-lg text-sm font-medium transition-colors"
+            >
+              {loadingSuggestions ? "Loading suggestions…" : "Start conversation"}
+            </button>
+          </div>
+        )}
+
+        {/* Default placeholder — no video loaded */}
+        {!videoId && messages.length === 0 && (
           <p className="text-sm text-gray-400 text-center mt-8">
             Ask anything — load a video to discuss it
           </p>
         )}
+
         {messages.map((msg) => (
           <div key={msg.id}>
             {msg.role === "system" ? (
@@ -252,15 +327,25 @@ export default function ChatPanel({ projectId, videoId, videoTitle, transcript, 
             ) : (
               <div className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
                 <div
-                  className={`max-w-[85%] rounded-xl px-3 py-2 text-sm whitespace-pre-wrap ${
+                  className={`max-w-[85%] rounded-xl px-3 py-2 text-sm ${
                     msg.role === "user"
-                      ? "bg-blue-600 text-white"
+                      ? "bg-blue-600 text-white whitespace-pre-wrap"
                       : "bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100"
                   }`}
                 >
-                  {msg.content}
-                  {streaming && msg.role === "assistant" && msg.content === "" && (
-                    <span className="inline-block w-2 h-3 bg-gray-400 animate-pulse rounded-sm" />
+                  {msg.role === "assistant" ? (
+                    <>
+                      <div className="prose prose-sm dark:prose-invert max-w-none prose-p:my-1 prose-headings:my-2 prose-ul:my-1 prose-ol:my-1 prose-li:my-0 prose-pre:my-2 prose-pre:bg-gray-200 dark:prose-pre:bg-gray-700 prose-code:text-pink-600 dark:prose-code:text-pink-400 prose-code:before:content-none prose-code:after:content-none">
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                          {msg.content}
+                        </ReactMarkdown>
+                      </div>
+                      {streaming && msg.content === "" && (
+                        <span className="inline-block w-2 h-3 bg-gray-400 animate-pulse rounded-sm" />
+                      )}
+                    </>
+                  ) : (
+                    msg.content
                   )}
                 </div>
               </div>
@@ -269,6 +354,30 @@ export default function ChatPanel({ projectId, videoId, videoTitle, transcript, 
         ))}
         <div ref={bottomRef} />
       </div>
+
+      {/* Suggestions */}
+      {suggestions && suggestions.length > 0 && (
+        <div className="px-3 py-2 border-t border-gray-200 dark:border-gray-800 shrink-0">
+          <div className="flex flex-wrap gap-1.5">
+            {suggestions.map((s, i) => (
+              <button
+                key={i}
+                onClick={() => setInput(s)}
+                className="text-xs px-2.5 py-1.5 rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900 transition-colors text-left"
+              >
+                {s}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Loading suggestions spinner */}
+      {loadingSuggestions && chatStarted && (
+        <div className="px-3 py-2 border-t border-gray-200 dark:border-gray-800 shrink-0">
+          <p className="text-xs text-gray-400 text-center animate-pulse">Generating suggestions…</p>
+        </div>
+      )}
 
       {/* Input */}
       <div className="px-3 py-2 border-t border-gray-200 dark:border-gray-800 shrink-0">

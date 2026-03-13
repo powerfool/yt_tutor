@@ -23,6 +23,8 @@
     "prisma": "^6.19.2",
     "react": "19.2.3",
     "react-dom": "19.2.3",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1",
     "youtube-transcript": "^1.2.1"
   },
   "devDependencies": {

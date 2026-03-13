@@ -91,6 +91,7 @@ export default function ProjectClient({ projectId, initialVideoId }: Props) {
           videoId={videoId}
           videoTitle={videoTitle}
           transcript={transcript}
+          playerRef={playerRef}
           onCopyToNotebook={(text) => notebookRef.current?.appendText(text)}
         />
       </div>

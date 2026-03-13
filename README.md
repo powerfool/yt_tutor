@@ -41,11 +41,16 @@ YT Tutor replaces the experience of watching YouTube alone. Instead of pausing t
 - Watch history recorded per project (video title + time watched)
 
 ### AI Chat
-- Powered by Claude (`claude-sonnet-4-6`) with streaming responses
-- **Default mode:** full Claude knowledge — ask about anything, not just the video
-- **Video focus mode:** toggle on to restrict Claude to the video's transcript as context, useful when you want answers anchored to what was actually said in the video
+- Powered by Claude (`claude-sonnet-4-6`) with streaming responses (up to 4096 tokens)
+- **"Start conversation" button** — when a video is loaded, click to kick off the session; Claude generates 4 suggested questions tailored to what you've watched so far
+- **Suggestion chips** — appear above the input; click to pre-fill the textarea (editable before sending); refresh at any time with the "Suggest" button in the header
+- **Open knowledge (default):** Claude uses both the full video transcript and its general knowledge
+- **Video only:** toggle on to restrict Claude strictly to what was said in the video — no outside knowledge drawn in
+- The full transcript is always sent as context (prompt-cached for efficiency — after the first message in a session, transcript tokens cost 10% of normal)
+- Claude always knows your current playback position and treats content past that timestamp as unseen
 - Chat history is a continuous log across all videos watched in a project
 - When you load a new video, a system message appears inline: *"Started watching: Video Title"* — gives the thread a timeline feel as you scroll back
+- Assistant responses render as markdown (bold, lists, code blocks, tables, etc.)
 - Graceful error handling for API credit issues, rate limits, and network errors
 
 ### Transcript Panel
@@ -89,10 +94,11 @@ YT Tutor replaces the experience of watching YouTube alone. Instead of pausing t
 | Framework | Next.js 16 (App Router, TypeScript, Tailwind CSS v4) |
 | Database | SQLite via Prisma 6 |
 | Auth | NextAuth v5 (credentials provider, single user) |
-| AI | Anthropic Claude API (streaming) |
+| AI | Anthropic Claude API (streaming, prompt caching) |
 | Video playback | YouTube IFrame Player API |
 | Transcripts & metadata | YouTube Data API v3 + yt-dlp fallback |
 | Rich text | TipTap 3 with StarterKit |
+| Markdown rendering | react-markdown + remark-gfm |
 | Process manager | PM2 (VPS deployment) |
 
 ---
@@ -224,6 +230,7 @@ src/
     api/
       auth/                    NextAuth handler
       chat/                    Streaming Claude API route
+        suggest/               POST — generate 4 suggested questions
       projects/                GET all projects, POST new project
       projects/[id]/           PATCH (rename, set current video), DELETE project
         messages/              GET + POST chat messages for a project
@@ -235,7 +242,7 @@ src/
     ProjectClient.tsx           Client shell — shared video/transcript/player state
     VideoPanel.tsx              YouTube IFrame player + URL bar + timestamp persistence
     TranscriptPanel.tsx         Timestamp-synced transcript with auto-scroll
-    ChatPanel.tsx               Streaming AI chat, video focus toggle, copy-to-notebook
+    ChatPanel.tsx               Streaming AI chat, suggestions, video-only toggle, copy-to-notebook
     NotebookPanel.tsx           TipTap editor — toolbar, autosave, exposes appendText
     WatchHistoryPanel.tsx       Per-project list of watched videos with relative times
   lib/

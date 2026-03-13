@@ -291,12 +291,12 @@ export default function ChatPanel({ projectId, videoId, videoTitle, transcript, 
       <div className="flex items-center justify-between px-4 py-2.5 border-b border-gray-200 dark:border-gray-800 shrink-0">
         <span className="text-[11px] font-semibold tracking-widest uppercase text-gray-400 dark:text-gray-500">Chat</span>
         <div className="flex items-center gap-1.5">
-          {chatStarted && (
+          {videoId && (
             <button
               onClick={fetchSuggestions}
-              disabled={loadingSuggestions || !videoId}
+              disabled={loadingSuggestions}
               className="text-[11px] px-2.5 py-1 rounded-full border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:border-blue-400 hover:text-blue-600 dark:hover:text-blue-400 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-              title="Refresh suggestions"
+              title="Suggest questions"
             >
               {loadingSuggestions ? "…" : "Suggest"}
             </button>

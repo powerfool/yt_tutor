@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { TranscriptSegment } from "@/lib/youtube";
 
-type YTPlayer = { getCurrentTime: () => number };
+type YTPlayer = { getCurrentTime: () => number; seekTo: (seconds: number, allowSeekAhead: boolean) => void };
 
 type Props = {
   transcript: TranscriptSegment[];
@@ -64,7 +64,8 @@ export default function TranscriptPanel({ transcript, playerRef }: Props) {
             <div
               key={i}
               ref={isActive ? activeRef : undefined}
-              className={`flex gap-2 rounded px-1.5 py-1 transition-colors select-text ${
+              onClick={() => playerRef.current?.seekTo(seg.offset / 1000, true)}
+              className={`flex gap-2 rounded px-1.5 py-1 transition-colors select-text cursor-pointer ${
                 isActive
                   ? "bg-yellow-100 dark:bg-yellow-900/40 text-gray-900 dark:text-gray-100"
                   : "text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800"

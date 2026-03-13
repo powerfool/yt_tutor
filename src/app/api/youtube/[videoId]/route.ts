@@ -1,5 +1,5 @@
 import { auth } from "@/auth";
-import { fetchVideoTitle, fetchTranscript } from "@/lib/youtube";
+import { fetchVideoTitle, fetchTranscript } from "@/lib/youtube.server";
 import { NextRequest, NextResponse } from "next/server";
 
 export async function GET(

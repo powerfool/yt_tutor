@@ -3,7 +3,7 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
-import { markdownToHtml } from "@/lib/markdownToTiptap";
+import { markdownToTiptapContent } from "@/lib/markdownToTiptap";
 
 type Props = {
   projectId: string;
@@ -74,9 +74,10 @@ const NotebookPanel = forwardRef<NotebookHandle, Props>(function NotebookPanel(
       },
       appendMarkdown: (markdown: string) => {
         if (!editor) return;
-        const html = markdownToHtml(markdown);
-        const end = editor.state.doc.content.size;
-        editor.chain().insertContentAt(end, html || markdown).run();
+        const nodes = markdownToTiptapContent(markdown);
+        if (nodes.length === 0) return;
+        const existing = editor.getJSON().content ?? [];
+        editor.commands.setContent({ type: "doc", content: [...existing, ...nodes] });
       },
     }),
     [editor]
@@ -112,14 +113,14 @@ const NotebookPanel = forwardRef<NotebookHandle, Props>(function NotebookPanel(
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-2.5 border-b border-gray-200 dark:border-gray-800 shrink-0">
-        <span className="text-[11px] font-semibold tracking-widest uppercase text-gray-400 dark:text-gray-500">
+      <div className="flex items-center justify-between px-4 h-10 border-b border-gray-200 dark:border-gray-800 shrink-0">
+        <span className="text-[11px] font-semibold tracking-widest uppercase text-gray-500 dark:text-gray-400">
           Notebook
         </span>
         <span
           className={`text-[11px] font-mono transition-colors ${
             saveStatus === "saved"
-              ? "text-gray-300 dark:text-gray-700"
+              ? "text-gray-400 dark:text-gray-600"
               : saveStatus === "saving"
               ? "text-blue-400 dark:text-blue-500"
               : "text-amber-500"

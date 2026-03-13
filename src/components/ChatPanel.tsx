@@ -68,32 +68,22 @@ export default function ChatPanel({ projectId, videoId, videoTitle, transcript, 
     const hasConvo = msgs.some(
       (m) => (m.role === "user" || m.role === "assistant") && m.videoId === videoId
     );
-    const hasSystemMsg = msgs.some(
-      (m) => m.role === "system" && m.videoId === videoId
-    );
 
-    if (hasConvo) {
-      // Returning to a video with existing conversation — restore state
-      setChatStarted(true);
-      return;
-    }
+    // Restore or reset chat state based on whether a conversation exists
+    setChatStarted(hasConvo);
 
-    // New video — reset chat state
-    setChatStarted(false);
-
-    if (!hasSystemMsg) {
-      const content = `Started watching: ${videoTitle ?? videoId}`;
-      fetch(`/api/projects/${projectId}/messages`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ role: "system", content, videoId }),
-      })
-        .then((r) => r.json())
-        .then((saved) => {
-          setMessages((prev) => [...prev, saved]);
-          allMessagesRef.current = [...allMessagesRef.current, saved];
-        });
-    }
+    // Always post "Started watching" when navigating to a different video
+    const content = `Started watching: ${videoTitle ?? videoId}`;
+    fetch(`/api/projects/${projectId}/messages`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ role: "system", content, videoId }),
+    })
+      .then((r) => r.json())
+      .then((saved) => {
+        setMessages((prev) => [...prev, saved]);
+        allMessagesRef.current = [...allMessagesRef.current, saved];
+      });
   }, [videoId, videoTitle, projectId, messagesLoaded]);
 
   useEffect(() => {

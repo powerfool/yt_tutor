@@ -10,15 +10,29 @@ export async function PATCH(
   if (!session) return new NextResponse(null, { status: 401 });
 
   const { id } = await params;
-  const { name } = await req.json();
+  const body = await req.json();
 
-  if (typeof name !== "string" || !name.trim()) {
-    return NextResponse.json({ error: "Invalid name" }, { status: 400 });
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const data: Record<string, any> = {};
+
+  if ("name" in body) {
+    if (typeof body.name !== "string" || !body.name.trim()) {
+      return NextResponse.json({ error: "Invalid name" }, { status: 400 });
+    }
+    data.name = body.name.trim();
+  }
+
+  if ("currentVideoId" in body) {
+    data.currentVideoId = typeof body.currentVideoId === "string" ? body.currentVideoId : null;
+  }
+
+  if (Object.keys(data).length === 0) {
+    return NextResponse.json({ error: "Nothing to update" }, { status: 400 });
   }
 
   const project = await prisma.project.update({
     where: { id },
-    data: { name: name.trim() },
+    data,
   });
 
   return NextResponse.json(project);

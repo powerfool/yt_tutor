@@ -26,22 +26,31 @@ declare global {
 
 type YTPlayer = {
   getCurrentTime: () => number;
+  seekTo: (seconds: number, allowSeekAhead: boolean) => void;
   destroy: () => void;
 };
 
 type Props = {
   projectId: string;
+  initialVideoId: string | null;
   onVideoLoad: (videoId: string, title: string, transcript: TranscriptSegment[] | null) => void;
   playerRef: React.MutableRefObject<YTPlayer | null>;
 };
 
-export default function VideoPanel({ projectId, onVideoLoad, playerRef }: Props) {
+function tsKey(projectId: string) {
+  return `yt_tutor_ts_${projectId}`;
+}
+
+export default function VideoPanel({ projectId, initialVideoId, onVideoLoad, playerRef }: Props) {
   const [urlInput, setUrlInput] = useState("");
   const [videoId, setVideoId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const playerContainerRef = useRef<HTMLDivElement>(null);
   const ytPlayerRef = useRef<YTPlayer | null>(null);
+  const tsIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Track whether this video load is from the persisted initial value
+  const pendingSeekRef = useRef<number | null>(null);
 
   // Load YouTube IFrame API once
   useEffect(() => {
@@ -50,6 +59,15 @@ export default function VideoPanel({ projectId, onVideoLoad, playerRef }: Props)
     tag.id = "yt-iframe-api";
     tag.src = "https://www.youtube.com/iframe_api";
     document.head.appendChild(tag);
+  }, []);
+
+  // Auto-load the persisted video on mount
+  useEffect(() => {
+    if (!initialVideoId) return;
+    const saved = localStorage.getItem(tsKey(projectId));
+    pendingSeekRef.current = saved ? parseFloat(saved) : 0;
+    loadVideoById(initialVideoId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Create player when videoId changes
@@ -65,6 +83,12 @@ export default function VideoPanel({ projectId, onVideoLoad, playerRef }: Props)
           onReady: (e) => {
             ytPlayerRef.current = e.target;
             playerRef.current = e.target;
+            // Seek to saved timestamp if restoring
+            if (pendingSeekRef.current !== null && pendingSeekRef.current > 0) {
+              e.target.seekTo(pendingSeekRef.current, true);
+            }
+            pendingSeekRef.current = null;
+            startTimestampSave();
           },
         },
       });
@@ -81,15 +105,32 @@ export default function VideoPanel({ projectId, onVideoLoad, playerRef }: Props)
     return () => {
       // cleanup handled on next video load
     };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [videoId, playerRef]);
 
-  async function handleLoad() {
-    const id = parseVideoId(urlInput);
-    if (!id) {
-      setError("Couldn't parse a YouTube video ID from that URL.");
-      return;
-    }
+  // Save timestamp to localStorage every 5s while a video is loaded
+  function startTimestampSave() {
+    if (tsIntervalRef.current) clearInterval(tsIntervalRef.current);
+    tsIntervalRef.current = setInterval(() => {
+      const player = ytPlayerRef.current;
+      if (!player) return;
+      try {
+        const t = player.getCurrentTime();
+        localStorage.setItem(tsKey(projectId), String(t));
+      } catch {
+        // ignore
+      }
+    }, 5000);
+  }
 
+  // Cleanup interval on unmount
+  useEffect(() => {
+    return () => {
+      if (tsIntervalRef.current) clearInterval(tsIntervalRef.current);
+    };
+  }, []);
+
+  async function loadVideoById(id: string) {
     setError("");
     setLoading(true);
     setVideoId(id);
@@ -104,12 +145,31 @@ export default function VideoPanel({ projectId, onVideoLoad, playerRef }: Props)
         body: JSON.stringify({ videoId: id, videoTitle: title }),
       });
 
+      // Persist currentVideoId to DB
+      fetch(`/api/projects/${projectId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ currentVideoId: id }),
+      });
+
       onVideoLoad(id, title, transcript);
     } catch {
       setError("Failed to load video info. The video will still play.");
     } finally {
       setLoading(false);
     }
+  }
+
+  async function handleLoad() {
+    const id = parseVideoId(urlInput);
+    if (!id) {
+      setError("Couldn't parse a YouTube video ID from that URL.");
+      return;
+    }
+    // Reset timestamp when user explicitly loads a new video
+    localStorage.removeItem(tsKey(projectId));
+    pendingSeekRef.current = null;
+    await loadVideoById(id);
   }
 
   return (

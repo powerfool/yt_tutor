@@ -19,7 +19,7 @@ export default async function ProjectPage({
   return (
     <div className="flex flex-col h-screen bg-white dark:bg-gray-950 text-gray-900 dark:text-gray-100">
       <ProjectTabBar />
-      <ProjectClient projectId={id} />
+      <ProjectClient projectId={id} initialVideoId={project.currentVideoId ?? null} />
     </div>
   );
 }

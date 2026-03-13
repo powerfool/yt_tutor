@@ -9,13 +9,14 @@ datasource db {
 }
 
 model Project {
-  id           String        @id @default(cuid())
-  name         String        @default("New Project")
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
-  messages     Message[]
-  notebook     Notebook?
-  watchHistory WatchHistory[]
+  id             String        @id @default(cuid())
+  name           String        @default("New Project")
+  currentVideoId String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  messages       Message[]
+  notebook       Notebook?
+  watchHistory   WatchHistory[]
 }
 
 model WatchHistory {

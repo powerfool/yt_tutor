@@ -9,29 +9,32 @@ export async function GET(
   const session = await auth();
   if (!session) return new NextResponse(null, { status: 401 });
 
-  const { id: projectId } = await params;
+  const { id } = await params;
 
-  const entries = await prisma.watchHistory.findMany({
-    where: { projectId },
-    orderBy: { watchedAt: "desc" },
+  const notebook = await prisma.notebook.upsert({
+    where: { projectId: id },
+    create: { projectId: id, content: "" },
+    update: {},
   });
 
-  return NextResponse.json(entries);
+  return NextResponse.json(notebook);
 }
 
-export async function POST(
+export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const session = await auth();
   if (!session) return new NextResponse(null, { status: 401 });
 
-  const { id: projectId } = await params;
-  const { videoId, videoTitle } = await req.json();
+  const { id } = await params;
+  const { content } = await req.json();
 
-  const entry = await prisma.watchHistory.create({
-    data: { projectId, videoId, videoTitle },
+  const notebook = await prisma.notebook.upsert({
+    where: { projectId: id },
+    create: { projectId: id, content },
+    update: { content },
   });
 
-  return NextResponse.json(entry, { status: 201 });
+  return NextResponse.json(notebook);
 }

@@ -36,16 +36,17 @@ YT Tutor replaces the experience of watching YouTube alone. Instead of pausing t
 
 ### Video Player
 - Paste any YouTube URL (full URL, `youtu.be` short link, Shorts, embed URL, or bare video ID)
-- Video persists across page reloads — the same video reloads automatically at the timestamp you left it
-- Watch history recorded per project; accessible via the clock icon button in the URL bar (dropdown, lazy-loaded)
+- Video persists across page reloads — the same video reloads automatically at the timestamp you left it (no autoplay; video is ready but waits for you to press play)
+- Watch history recorded per project; accessible via the clock icon button in the URL bar (dropdown, lazy-loaded; selecting a video loads it in the player)
 
 ### AI Chat
 - Powered by Claude (`claude-sonnet-4-6`) with streaming responses (up to 4096 tokens)
-- **"Start conversation" button** — when a video is loaded, click to kick off the session; Claude generates 4 suggested questions and, if a transcript is available, automatically generates video chapters
-- **Suggestion chips** — appear above the input; click to pre-fill the textarea (editable before sending); refresh at any time with the "Suggest" button
+- **"Start conversation" button** — when a video is loaded, click to kick off the session; Claude generates 4 suggested questions and, if no YouTube description chapters were found, automatically generates video chapters from the transcript
+- **Suggestion chips** — appear above the input whenever a video is loaded; click to pre-fill the textarea (editable before sending); refresh at any time with the "Suggest" button
+- **Loading indicator** — bottom bar shows "Loading video…" while the transcript and metadata are being fetched
 - Suggestions are context-aware: on a fresh start Claude picks broad, interesting questions freely; once chapters exist, suggestions focus on the current chapter; with conversation history, they build on what's been discussed
-- **Open knowledge (default):** Claude uses both the full video transcript and its general knowledge
-- **Video only (toggle):** Restricts Claude to the video as the sole source — draws on the full transcript (including content you haven't reached yet), but brings in no outside knowledge
+- **Video only (default):** Claude draws exclusively on the full transcript — no outside knowledge; best for staying focused on the material
+- **Open knowledge (toggle):** Unlocks Claude's general knowledge in addition to the transcript — useful for broader questions
 - The full transcript is always sent as context (prompt-cached — after the first message, transcript tokens cost 10% of normal)
 - Chat history is a continuous log across all videos watched in a project
 - When you load a new video, a system message appears inline: *"Started watching: Video Title"*
@@ -55,19 +56,20 @@ YT Tutor replaces the experience of watching YouTube alone. Instead of pausing t
 - Graceful error handling for API credit issues, rate limits, and network errors
 
 ### Chapters
-- Auto-generated when you click "Start conversation" (requires a transcript)
-- Claude analyses the full transcript and identifies 4–8 topic chapters with titles and timestamps
+- Sourced in priority order: **DB-cached chapters** → **YouTube description chapters** → **Claude-generated chapters**
+- **YouTube description chapters** — if the video has timestamps in its description (the standard YouTube chapters format), they are parsed automatically on load with no AI call required; auto-saved to DB on first fetch
+- **Claude-generated chapters** — if no YouTube chapters exist, clicking "Start conversation" triggers Claude to analyse the full transcript and identify 4–8 topic chapters; these are saved to DB and never overwritten by subsequent fetches
 - Displayed in the left column of the transcript panel; clicking any chapter seeks the player to that point
-- Active chapter highlighted and auto-scrolled as the video plays
+- Active chapter highlighted with a blue tint background and auto-scrolled as the video plays
 - Timestamps display as `m:ss` or `h:mm:ss` depending on video length
 - Chapters reset automatically when a new video is loaded
 
 ### Transcript Panel
-- Auto-fetched when a video loads
-- Two-stage fetch: direct scrape of YouTube's caption data first; falls back to `yt-dlp` for videos where YouTube's session-bound URLs block server-side access
-- Collapsible — toggled via the "Transcript" tab below the player
+- Always visible below the video player — shows a loading skeleton while fetching, empty state if unavailable
+- **DB-cached:** transcript is saved to the database on first load; subsequent visits to the same video skip the YouTube fetch entirely and use the cached copy
+- Two-stage fetch (first load only): direct scrape of YouTube's caption data first; falls back to `yt-dlp` for videos where YouTube's session-bound URLs block server-side access
 - Two-column layout when chapters are available: chapters on the left, full transcript on the right
-- Active segment highlighted with a blue left-border indicator and auto-scrolled to as the video plays
+- Active segment highlighted with a blue left-border indicator and auto-scrolled to as the video plays; active segment kept at ~25% from the top of the panel
 - Pauses auto-scroll for 5 seconds when you manually scroll, then resumes
 - **Click any line to jump the video to that timestamp**
 - Text is selectable
@@ -274,7 +276,7 @@ ecosystem.config.js             PM2 process config
 
 ```
 Project       id, name, currentVideoId, createdAt, updatedAt
-WatchHistory  id, projectId, videoId, videoTitle, watchedAt
+WatchHistory  id, projectId, videoId, videoTitle, watchedAt, transcriptJson, chapters
 Message       id, projectId, role (user|assistant|system), content, videoId, createdAt
 Notebook      id, projectId, content (TipTap JSON string), updatedAt
 ```
@@ -282,6 +284,8 @@ Notebook      id, projectId, content (TipTap JSON string), updatedAt
 - One notebook per project (auto-created on first access)
 - Chat messages are a continuous log scoped to the project, not to individual videos
 - `currentVideoId` on Project stores the last-watched video for reload persistence; playback timestamp is stored in `localStorage` keyed by project ID
+- `transcriptJson` on WatchHistory caches the full transcript after the first fetch — subsequent loads of the same video skip the YouTube API call entirely
+- `chapters` on WatchHistory caches parsed or Claude-generated chapters; once saved, they are never overwritten by new fetches
 
 ---
 

@@ -350,7 +350,7 @@ export default function ChatPanel({ projectId, videoId, videoTitle, transcript, 
         className="flex-1 overflow-y-auto px-4 py-4 space-y-6"
       >
         {/* Start conversation CTA */}
-        {!chatStarted && videoId && messages.filter((m) => m.role !== "system").length === 0 && (
+        {!chatStarted && videoId && messages.filter((m) => (m.role === "user" || m.role === "assistant") && m.videoId === videoId).length === 0 && (
           <div className="flex flex-col items-center justify-center h-full gap-3">
             <p className="text-sm text-gray-400 dark:text-gray-500 text-center">
               Ready to explore this video with AI

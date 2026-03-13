@@ -271,13 +271,16 @@ export default function VideoPanel({ projectId, initialVideoId, onVideoLoad, pla
               ) : (
                 <div className="py-1">
                   {history.map((entry) => (
-                    <a
+                    <button
                       key={entry.id}
-                      href={`https://www.youtube.com/watch?v=${entry.videoId}`}
-                      target="_blank"
-                      rel="noreferrer"
-                      onClick={() => setHistoryOpen(false)}
-                      className="flex items-center gap-2.5 px-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-800 group transition-colors"
+                      onClick={() => {
+                        setHistoryOpen(false);
+                        localStorage.removeItem(tsKey(projectId));
+                        pendingSeekRef.current = null;
+                        shouldAutoplayRef.current = true;
+                        loadVideoById(entry.videoId);
+                      }}
+                      className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-800 group transition-colors text-left"
                     >
                       <div className="min-w-0 flex-1">
                         <p className="text-[13px] text-gray-700 dark:text-gray-300 truncate group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors leading-snug">
@@ -287,8 +290,7 @@ export default function VideoPanel({ projectId, initialVideoId, onVideoLoad, pla
                           {relativeTime(entry.watchedAt)}
                         </p>
                       </div>
-                      <span className="shrink-0 text-gray-300 dark:text-gray-600 group-hover:text-gray-400 dark:group-hover:text-gray-500 text-xs transition-colors">↗</span>
-                    </a>
+                    </button>
                   ))}
                 </div>
               )}

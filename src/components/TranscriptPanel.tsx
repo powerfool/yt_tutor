@@ -61,12 +61,17 @@ export default function TranscriptPanel({ transcript, playerRef, chapters = [] }
     const container = transcriptScrollRef.current;
     const el = activeSegRef.current;
     if (!container || !el) return;
-    const elTop = el.offsetTop;
+    // Use getBoundingClientRect for accurate position within the scroll container
+    const containerRect = container.getBoundingClientRect();
+    const elRect = el.getBoundingClientRect();
+    const elTopRelative = elRect.top - containerRect.top;
     const containerH = container.clientHeight;
-    const scrollTop = container.scrollTop;
-    // Scroll if element is outside the top 65% of the visible area
-    if (elTop < scrollTop || elTop > scrollTop + containerH * 0.65) {
-      container.scrollTo({ top: Math.max(0, elTop - containerH * 0.25), behavior: "smooth" });
+    // Scroll if element is above the top or below 65% of the visible area
+    if (elTopRelative < 0 || elTopRelative > containerH * 0.65) {
+      container.scrollTo({
+        top: container.scrollTop + elTopRelative - containerH * 0.25,
+        behavior: "smooth",
+      });
     }
   }, [activeSegIdx]);
 

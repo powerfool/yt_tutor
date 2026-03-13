@@ -49,10 +49,12 @@ YT Tutor replaces the experience of watching YouTube alone. Instead of pausing t
 - Graceful error handling for API credit issues, rate limits, and network errors
 
 ### Transcript Panel
-- Auto-fetched when a video loads (via YouTube Data API)
+- Auto-fetched when a video loads
+- Two-stage fetch: direct scrape of YouTube's caption data first; falls back to `yt-dlp` for videos where YouTube's session-bound URLs block server-side access
 - Collapsible — toggled via the "Transcript" tab below the player
 - Active segment highlighted in yellow and auto-scrolled to as the video plays
 - Pauses auto-scroll for 5 seconds when you manually scroll, then resumes
+- **Click any line to jump the video to that timestamp**
 - Text is selectable and copyable
 - Falls back gracefully when transcripts are unavailable (e.g. videos without captions)
 
@@ -89,7 +91,7 @@ YT Tutor replaces the experience of watching YouTube alone. Instead of pausing t
 | Auth | NextAuth v5 (credentials provider, single user) |
 | AI | Anthropic Claude API (streaming) |
 | Video playback | YouTube IFrame Player API |
-| Transcripts & metadata | YouTube Data API v3 |
+| Transcripts & metadata | YouTube Data API v3 + yt-dlp fallback |
 | Rich text | TipTap 3 with StarterKit |
 | Process manager | PM2 (VPS deployment) |
 
@@ -99,7 +101,8 @@ YT Tutor replaces the experience of watching YouTube alone. Instead of pausing t
 
 - Node.js 18+
 - npm
-- A [YouTube Data API v3 key](https://console.cloud.google.com/) — for fetching video metadata and transcripts
+- **yt-dlp** — used as a fallback transcript fetcher for videos where YouTube blocks server-side caption access
+- A [YouTube Data API v3 key](https://console.cloud.google.com/) — for fetching video metadata
 - An [Anthropic API key](https://console.anthropic.com/) — for Claude AI chat
 
 ---
@@ -111,6 +114,17 @@ git clone https://github.com/powerfool/yt_tutor.git
 cd yt_tutor
 npm install
 npx prisma generate
+```
+
+Install yt-dlp (required for transcript fallback):
+
+```bash
+# macOS
+brew install yt-dlp
+
+# Linux / VPS
+curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp
+chmod +x /usr/local/bin/yt-dlp
 ```
 
 ---
@@ -225,7 +239,8 @@ src/
     NotebookPanel.tsx           TipTap editor — toolbar, autosave, exposes appendText
     WatchHistoryPanel.tsx       Per-project list of watched videos with relative times
   lib/
-    youtube.ts                  YouTube Data API client (title + transcript fetch)
+    youtube.ts                  Client-safe helpers (parseVideoId, types)
+    youtube.server.ts           Server-only transcript + metadata fetch (Node.js + yt-dlp)
     prisma.ts                   Prisma singleton with absolute DB path resolution
   auth.ts                       NextAuth v5 config (credentials provider)
   proxy.ts                      Auth middleware — redirects unauthenticated requests
@@ -266,5 +281,5 @@ Notebook      id, projectId, content (TipTap JSON string), updatedAt
 
 - **Single user only** — no multi-user or role support
 - **Transcripts require captions** — videos without captions will show "unavailable" in the transcript tab
-- **Unofficial transcript API** — the `youtube-transcript` package scrapes YouTube's internal API and may break if YouTube changes its internals
+- **Transcript fetching is best-effort** — the primary path scrapes `ytInitialPlayerResponse` from YouTube's page HTML; if YouTube changes that format it may break. The yt-dlp fallback is more resilient but adds a few seconds of latency
 - **No export integrations** — copy-paste is the only way to get content out of the notebook for now

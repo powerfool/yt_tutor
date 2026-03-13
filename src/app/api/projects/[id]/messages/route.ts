@@ -34,3 +34,16 @@ export async function POST(
 
   return NextResponse.json(message, { status: 201 });
 }
+
+export async function DELETE(
+  _req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const session = await auth();
+  if (!session) return new NextResponse(null, { status: 401 });
+
+  const { id: projectId } = await params;
+  await prisma.message.deleteMany({ where: { projectId } });
+
+  return new NextResponse(null, { status: 204 });
+}

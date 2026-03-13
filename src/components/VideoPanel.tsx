@@ -49,8 +49,9 @@ export default function VideoPanel({ projectId, initialVideoId, onVideoLoad, pla
   const playerContainerRef = useRef<HTMLDivElement>(null);
   const ytPlayerRef = useRef<YTPlayer | null>(null);
   const tsIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  // Track whether this video load is from the persisted initial value
   const pendingSeekRef = useRef<number | null>(null);
+  // false = no autoplay (initial restore); true = autoplay (user-triggered load)
+  const shouldAutoplayRef = useRef(false);
 
   // Load YouTube IFrame API once
   useEffect(() => {
@@ -61,11 +62,12 @@ export default function VideoPanel({ projectId, initialVideoId, onVideoLoad, pla
     document.head.appendChild(tag);
   }, []);
 
-  // Auto-load the persisted video on mount
+  // Auto-load the persisted video on mount (no autoplay)
   useEffect(() => {
     if (!initialVideoId) return;
     const saved = localStorage.getItem(tsKey(projectId));
     pendingSeekRef.current = saved ? parseFloat(saved) : 0;
+    shouldAutoplayRef.current = false;
     loadVideoById(initialVideoId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -78,7 +80,7 @@ export default function VideoPanel({ projectId, initialVideoId, onVideoLoad, pla
       if (ytPlayerRef.current) ytPlayerRef.current.destroy();
       const player = new window.YT.Player(playerContainerRef.current!, {
         videoId,
-        playerVars: { autoplay: 1, rel: 0, modestbranding: 1 },
+        playerVars: { autoplay: shouldAutoplayRef.current ? 1 : 0, rel: 0, modestbranding: 1 },
         events: {
           onReady: (e) => {
             ytPlayerRef.current = e.target;
@@ -169,6 +171,7 @@ export default function VideoPanel({ projectId, initialVideoId, onVideoLoad, pla
     // Reset timestamp when user explicitly loads a new video
     localStorage.removeItem(tsKey(projectId));
     pendingSeekRef.current = null;
+    shouldAutoplayRef.current = true;
     await loadVideoById(id);
   }
 

@@ -40,6 +40,17 @@ export default function ProjectTabBar() {
     setEditingName(project.name);
   }
 
+  async function deleteProject(id: string, e: React.MouseEvent) {
+    e.stopPropagation();
+    if (!confirm("Delete this project? This cannot be undone.")) return;
+    await fetch(`/api/projects/${id}`, { method: "DELETE" });
+    const remaining = projects.filter((p) => p.id !== id);
+    setProjects(remaining);
+    if (activeId === id) {
+      router.push(remaining.length > 0 ? `/project/${remaining[0].id}` : "/");
+    }
+  }
+
   async function commitRename(id: string) {
     const name = editingName.trim();
     setEditingId(null);
@@ -64,7 +75,7 @@ export default function ProjectTabBar() {
           onClick={() => router.push(`/project/${project.id}`)}
           onDoubleClick={() => startEditing(project)}
           className={`
-            flex items-center px-3 py-2 text-sm rounded-t cursor-pointer select-none whitespace-nowrap
+            group flex items-center gap-1.5 px-3 py-2 text-sm rounded-t cursor-pointer select-none whitespace-nowrap
             ${
               activeId === project.id
                 ? "bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100 font-medium"
@@ -88,6 +99,13 @@ export default function ProjectTabBar() {
           ) : (
             project.name
           )}
+          <button
+            onClick={(e) => deleteProject(project.id, e)}
+            className="opacity-0 group-hover:opacity-100 ml-0.5 text-gray-400 hover:text-red-500 dark:hover:text-red-400 leading-none transition-opacity"
+            title="Delete project"
+          >
+            ×
+          </button>
         </div>
       ))}
 

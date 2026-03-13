@@ -104,6 +104,13 @@ export default function ChatPanel({ projectId, videoId, videoTitle, transcript, 
     setSelectionPopup(null);
   }
 
+  async function clearChat() {
+    if (!confirm("Clear all chat messages? This cannot be undone.")) return;
+    await fetch(`/api/projects/${projectId}/messages`, { method: "DELETE" });
+    setMessages([]);
+    prevVideoIdRef.current = null;
+  }
+
   async function sendMessage() {
     if (!input.trim() || streaming) return;
 
@@ -181,18 +188,28 @@ export default function ChatPanel({ projectId, videoId, videoTitle, transcript, 
       {/* Header */}
       <div className="flex items-center justify-between px-3 py-2 border-b border-gray-200 dark:border-gray-800 shrink-0">
         <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Chat</span>
-        <button
-          onClick={() => setVideoFocus((v) => !v)}
-          disabled={!videoId}
-          className={`text-xs px-2 py-1 rounded-full border transition-colors ${
-            videoFocus
-              ? "bg-blue-100 dark:bg-blue-900 border-blue-300 dark:border-blue-700 text-blue-700 dark:text-blue-300"
-              : "border-gray-300 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:border-gray-400"
-          } disabled:opacity-40 disabled:cursor-not-allowed`}
-          title={videoFocus ? "Focused on video transcript" : "Using full Claude knowledge"}
-        >
-          {videoFocus ? "Video focus on" : "Video focus off"}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={clearChat}
+            disabled={messages.length === 0}
+            className="text-xs px-2 py-1 rounded-full border border-gray-300 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:border-red-400 hover:text-red-500 dark:hover:text-red-400 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            title="Clear all messages"
+          >
+            Clear
+          </button>
+          <button
+            onClick={() => setVideoFocus((v) => !v)}
+            disabled={!videoId}
+            className={`text-xs px-2 py-1 rounded-full border transition-colors ${
+              videoFocus
+                ? "bg-blue-100 dark:bg-blue-900 border-blue-300 dark:border-blue-700 text-blue-700 dark:text-blue-300"
+                : "border-gray-300 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:border-gray-400"
+            } disabled:opacity-40 disabled:cursor-not-allowed`}
+            title={videoFocus ? "Focused on video transcript" : "Using full Claude knowledge"}
+          >
+            {videoFocus ? "Video focus on" : "Video focus off"}
+          </button>
+        </div>
       </div>
 
       {/* Copy-to-notebook popup */}

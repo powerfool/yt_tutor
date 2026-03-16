@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { parseVideoId, TranscriptSegment, Chapter } from "@/lib/youtube";
+import { YTPlayer } from "@/lib/ytplayer";
 
 declare global {
   interface Window {
@@ -23,11 +24,6 @@ declare global {
   }
 }
 
-type YTPlayer = {
-  getCurrentTime: () => number;
-  seekTo: (seconds: number, allowSeekAhead: boolean) => void;
-  destroy: () => void;
-};
 
 type HistoryEntry = {
   id: string;
@@ -105,6 +101,7 @@ export default function VideoPanel({ projectId, initialVideoId, onVideoLoadStart
             playerRef.current = e.target;
             if (pendingSeekRef.current !== null && pendingSeekRef.current > 0) {
               e.target.seekTo(pendingSeekRef.current, true);
+              e.target.pauseVideo();
             }
             pendingSeekRef.current = null;
             startTimestampSave(videoId);
@@ -121,7 +118,13 @@ export default function VideoPanel({ projectId, initialVideoId, onVideoLoadStart
       window.onYouTubeIframeAPIReady = createPlayer;
     }
 
-    return () => {};
+    return () => {
+      if (ytPlayerRef.current) {
+        ytPlayerRef.current.destroy();
+        ytPlayerRef.current = null;
+        playerRef.current = null;
+      }
+    };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [videoId, playerRef]);
 

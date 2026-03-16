@@ -6,8 +6,7 @@ import ChatPanel from "@/components/ChatPanel";
 import NotebookPanel, { NotebookHandle } from "@/components/NotebookPanel";
 import TranscriptPanel from "@/components/TranscriptPanel";
 import { TranscriptSegment, Chapter } from "@/lib/youtube";
-
-type YTPlayer = { getCurrentTime: () => number; seekTo: (s: number, a: boolean) => void; destroy: () => void };
+import { YTPlayer } from "@/lib/ytplayer";
 
 type Props = { projectId: string; initialVideoId: string | null };
 

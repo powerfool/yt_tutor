@@ -2,8 +2,7 @@ import { auth } from "@/auth";
 import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { TranscriptSegment } from "@/lib/youtube";
-
-const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+import { getAnthropicApiKey, getPrompt } from "@/lib/settings";
 
 function formatMs(ms: number): string {
   const total = Math.floor(ms / 1000);
@@ -15,6 +14,11 @@ function formatMs(ms: number): string {
 export async function POST(req: NextRequest) {
   const session = await auth();
   if (!session) return new NextResponse(null, { status: 401 });
+
+  const apiKey = await getAnthropicApiKey();
+  const client = new Anthropic({ apiKey });
+  const chaptersSystemPrompt = await getPrompt("chaptersSystemPrompt");
+  const chaptersUserPrompt = await getPrompt("chaptersUserPrompt");
 
   const {
     transcript,
@@ -39,14 +43,7 @@ export async function POST(req: NextRequest) {
     `Analyze this YouTube video transcript and identify the main topic chapters.\n` +
     `Video title: "${videoTitle ?? "Unknown"}"\n\n` +
     `TRANSCRIPT (format: [mm:ss] text):\n${transcriptText}\n\n` +
-    `Return ONLY a JSON array of chapters. Each chapter needs a short title (3–6 words) ` +
-    `and the startTimeSec (integer seconds) where that topic begins.\n` +
-    `Rules:\n` +
-    `- Identify 4–8 chapters depending on video length\n` +
-    `- First chapter MUST start at 0\n` +
-    `- startTimeSec values must be plausible given the timestamps in the transcript\n` +
-    `- Return valid JSON only, no markdown fences, no explanation\n` +
-    `Example: [{"title":"Introduction","startTimeSec":0},{"title":"Core Concepts","startTimeSec":120}]`;
+    chaptersUserPrompt;
 
   try {
     const response = await client.messages.create({
@@ -55,7 +52,7 @@ export async function POST(req: NextRequest) {
       system: [
         {
           type: "text",
-          text: "You are a precise JSON-only assistant. Never output anything outside a JSON array.",
+          text: chaptersSystemPrompt,
         },
       ],
       messages: [{ role: "user", content: prompt }],

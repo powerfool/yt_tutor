@@ -47,3 +47,25 @@ model Notebook {
   updatedAt DateTime @updatedAt
   project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
 }
+
+model Settings {
+  id String @id @default("singleton")
+
+  anthropicApiKey String?
+  youtubeApiKey   String?
+
+  // Chat prompts
+  chatSystemPrompt    String?
+  chatVideoOnlyPrompt String?
+  chatGeneralPrompt   String?
+
+  // Suggest prompts (support {{CHAPTER}}, {{TIME}} placeholders — replaced at runtime)
+  suggestFreshNoChapter     String?
+  suggestFreshWithChapter   String?
+  suggestHistoryWithChapter String?
+  suggestHistoryNoChapter   String?
+
+  // Chapters prompts
+  chaptersSystemPrompt String?
+  chaptersUserPrompt   String?
+}

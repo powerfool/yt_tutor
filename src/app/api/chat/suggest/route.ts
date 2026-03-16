@@ -2,8 +2,7 @@ import { auth } from "@/auth";
 import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { TranscriptSegment } from "@/lib/youtube";
-
-const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+import { getAnthropicApiKey, getPrompt } from "@/lib/settings";
 
 type HistoryMessage = { role: "user" | "assistant"; content: string };
 type CurrentChapter = { title: string; startTimeSec: number } | null;
@@ -29,6 +28,16 @@ export async function POST(req: NextRequest) {
   const session = await auth();
   if (!session) return new NextResponse(null, { status: 401 });
 
+  const apiKey = await getAnthropicApiKey();
+  const client = new Anthropic({ apiKey });
+  const systemPrompt = await getPrompt("chatSystemPrompt");
+  const templates = {
+    freshNoChapter: await getPrompt("suggestFreshNoChapter"),
+    freshWithChapter: await getPrompt("suggestFreshWithChapter"),
+    historyWithChapter: await getPrompt("suggestHistoryWithChapter"),
+    historyNoChapter: await getPrompt("suggestHistoryNoChapter"),
+  };
+
   const {
     transcript,
     videoTitle,
@@ -50,15 +59,15 @@ export async function POST(req: NextRequest) {
       .map((s) => `${formatMs(s.offset)} ${s.text}`)
       .join("\n");
     block1 =
-      `You are a helpful research assistant helping a learner study a YouTube video.\n` +
+      `${systemPrompt}\n` +
       `Video title: "${videoTitle ?? "Unknown"}"\n\n` +
       `FULL TRANSCRIPT:\n${transcriptText}`;
   } else if (videoTitle) {
     block1 =
-      `You are a helpful research assistant helping a learner study a YouTube video.\n` +
+      `${systemPrompt}\n` +
       `Video title: "${videoTitle}"\n(No transcript available.)`;
   } else {
-    block1 = `You are a helpful research assistant helping a learner study a YouTube video.`;
+    block1 = systemPrompt;
   }
 
   // System block 2: current position context
@@ -79,37 +88,20 @@ export async function POST(req: NextRequest) {
   let userPrompt: string;
 
   if (!hasPriorConversation) {
-    // Fresh start — let Claude decide what's most interesting to explore
     if (currentChapter) {
-      userPrompt =
-        `The learner just opened this video and is starting in the chapter "${currentChapter.title}". ` +
-        `Generate 4 varied questions that will help them understand and engage with this topic. ` +
-        `Mix conceptual questions ("What is...?"), application questions ("How would you use...?"), ` +
-        `and deeper-dive questions. Don't just ask for definitions.\n` +
-        `Return ONLY a JSON array of 4 strings, no explanation, no markdown fences.`;
+      userPrompt = templates.freshWithChapter.replace(/\{\{CHAPTER\}\}/g, currentChapter.title);
     } else {
-      userPrompt =
-        `The learner just opened this video. Based on the title and content, ` +
-        `generate 4 varied questions that will spark curiosity and help them engage deeply with the material. ` +
-        `Mix different angles: core concepts, implications, comparisons, and "why does this matter?" questions. ` +
-        `Return ONLY a JSON array of 4 strings, no explanation, no markdown fences.`;
+      userPrompt = templates.freshNoChapter;
     }
   } else if (currentChapter) {
-    // Has conversation history + chapter context — focus on current chapter, avoid repeating discussed topics
     userPrompt =
-      `The learner is currently in the chapter "${currentChapter.title}" (at ${timeStr}). ` +
-      `Based on this chapter's content and the conversation so far, generate 4 follow-up questions ` +
-      `that go deeper into "${currentChapter.title}" or connect it to what was already discussed. ` +
-      `Avoid questions that were already answered in the conversation.` +
-      `Return ONLY a JSON array of 4 strings, no explanation, no markdown fences.` +
+      templates.historyWithChapter
+        .replace(/\{\{CHAPTER\}\}/g, currentChapter.title)
+        .replace(/\{\{TIME\}\}/g, timeStr) +
       historyContext;
   } else {
-    // Has conversation history, no chapter context — build on the conversation
     userPrompt =
-      `The learner is at ${timeStr} and has been having a conversation about this video. ` +
-      `Generate 4 natural follow-up questions based on what they've discussed and what's coming up in the video. ` +
-      `Avoid questions already answered. Keep questions concise and specific.\n` +
-      `Return ONLY a JSON array of 4 strings, no explanation, no markdown fences.` +
+      templates.historyNoChapter.replace(/\{\{TIME\}\}/g, timeStr) +
       historyContext;
   }
 

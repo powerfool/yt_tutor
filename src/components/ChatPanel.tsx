@@ -4,9 +4,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { TranscriptSegment, Chapter } from "@/lib/youtube";
-
-
-type YTPlayer = { getCurrentTime: () => number; seekTo: (s: number, a: boolean) => void; destroy: () => void };
+import { YTPlayer } from "@/lib/ytplayer";
 
 type Message = {
   id: string;
@@ -45,6 +43,7 @@ export default function ChatPanel({ projectId, videoId, videoTitle, transcript, 
   const bottomRef = useRef<HTMLDivElement>(null);
   const prevVideoIdRef = useRef<string | null>(null);
   const messagesRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const allMessagesRef = useRef<Message[]>([]);
 
   useEffect(() => {
@@ -75,7 +74,14 @@ export default function ChatPanel({ projectId, videoId, videoTitle, transcript, 
 
     // Post "Started watching" on genuine navigation (not page-load restore).
     // prevId === null means this is the initial mount restoring the last video.
-    if (prevId === null && hasConvo) return;
+    // Check for any existing system message for this video (the pill), not just
+    // user/assistant messages — the pill could exist even if the user never typed.
+    if (prevId === null) {
+      const alreadyStarted = msgs.some(
+        (m) => m.role === "system" && m.videoId === videoId
+      );
+      if (alreadyStarted) return;
+    }
     const content = `Started watching: ${videoTitle ?? videoId}`;
     fetch(`/api/projects/${projectId}/messages`, {
       method: "POST",
@@ -94,7 +100,6 @@ export default function ChatPanel({ projectId, videoId, videoTitle, transcript, 
   }, [messages, streaming]);
 
   const handleMessagesMouseUp = useCallback(() => {
-    if (!onCopyToNotebook) return;
     const sel = window.getSelection();
     if (!sel || sel.isCollapsed || !sel.toString().trim()) return;
     if (!messagesRef.current?.contains(sel.anchorNode)) return;
@@ -105,7 +110,7 @@ export default function ChatPanel({ projectId, videoId, videoTitle, transcript, 
       x: rect.left + rect.width / 2,
       y: rect.top,
     });
-  }, [onCopyToNotebook]);
+  }, []);
 
   useEffect(() => {
     function onMouseDown(e: MouseEvent) {
@@ -125,6 +130,23 @@ export default function ChatPanel({ projectId, videoId, videoTitle, transcript, 
     onCopyToNotebook?.(selectionPopup.text);
     window.getSelection()?.removeAllRanges();
     setSelectionPopup(null);
+  }
+
+  function handleQuoteInChat() {
+    if (!selectionPopup) return;
+    const quoted = selectionPopup.text
+      .split("\n")
+      .map((line) => `> ${line}`)
+      .join("\n");
+    setInput((prev) => (prev ? `${prev}\n\n${quoted}\n\n` : `${quoted}\n\n`));
+    if (!chatStarted) setChatStarted(true);
+    window.getSelection()?.removeAllRanges();
+    setSelectionPopup(null);
+    setTimeout(() => {
+      textareaRef.current?.focus();
+      const len = textareaRef.current?.value.length ?? 0;
+      textareaRef.current?.setSelectionRange(len, len);
+    }, 0);
   }
 
   async function clearChat() {
@@ -319,22 +341,37 @@ export default function ChatPanel({ projectId, videoId, videoTitle, transcript, 
         </div>
       </div>
 
-      {/* Copy-to-notebook popup */}
-      {selectionPopup && onCopyToNotebook && (
-        <button
+      {/* Selection popup */}
+      {selectionPopup && (
+        <div
           data-copy-popup
           onMouseDown={(e) => e.preventDefault()}
-          onClick={handleCopyToNotebook}
           style={{
             position: "fixed",
             left: selectionPopup.x,
-            top: selectionPopup.y - 38,
+            top: selectionPopup.y - 44,
             transform: "translateX(-50%)",
           }}
-          className="z-50 bg-blue-600 hover:bg-blue-500 text-white text-[11px] font-medium px-3 py-1.5 rounded-full shadow-lg whitespace-nowrap transition-colors"
+          className="z-50 flex items-center gap-px bg-gray-900 dark:bg-gray-700 rounded-full shadow-lg overflow-hidden"
         >
-          Copy to notebook
-        </button>
+          <button
+            onClick={handleQuoteInChat}
+            className="text-[11px] font-medium px-3 py-1.5 text-white hover:bg-white/10 transition-colors whitespace-nowrap"
+          >
+            Quote in chat
+          </button>
+          {onCopyToNotebook && (
+            <>
+              <div className="w-px h-4 bg-white/20" />
+              <button
+                onClick={handleCopyToNotebook}
+                className="text-[11px] font-medium px-3 py-1.5 text-white hover:bg-white/10 transition-colors whitespace-nowrap"
+              >
+                → Notebook
+              </button>
+            </>
+          )}
+        </div>
       )}
 
       {/* Messages */}
@@ -443,6 +480,7 @@ export default function ChatPanel({ projectId, videoId, videoTitle, transcript, 
         ) : (
           <div className="flex gap-2 items-end">
             <textarea
+              ref={textareaRef}
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => {

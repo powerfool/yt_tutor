@@ -5,6 +5,7 @@ import { readFile, unlink, readdir } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
 import type { TranscriptSegment, Chapter } from "./youtube";
+import { getYoutubeApiKey } from "@/lib/settings";
 
 const execFileAsync = promisify(execFile);
 
@@ -27,7 +28,7 @@ function parseChaptersFromDescription(description: string): Chapter[] | null {
 
 /** Fetch video title + any chapters embedded in the description. */
 export async function fetchVideoInfo(videoId: string): Promise<{ title: string; ytChapters: Chapter[] | null }> {
-  const apiKey = process.env.YOUTUBE_API_KEY;
+  const apiKey = await getYoutubeApiKey();
   const url = `https://www.googleapis.com/youtube/v3/videos?part=snippet&id=${videoId}&key=${apiKey}`;
   const res = await fetch(url);
   const data = await res.json();

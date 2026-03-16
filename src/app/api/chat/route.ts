@@ -2,8 +2,7 @@ import { auth } from "@/auth";
 import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { TranscriptSegment } from "@/lib/youtube";
-
-const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+import { getAnthropicApiKey, getPrompt } from "@/lib/settings";
 
 type HistoryMessage = { role: "user" | "assistant"; content: string };
 
@@ -25,6 +24,12 @@ function formatSec(sec: number): string {
 export async function POST(req: NextRequest) {
   const session = await auth();
   if (!session) return new NextResponse(null, { status: 401 });
+
+  const apiKey = await getAnthropicApiKey();
+  const client = new Anthropic({ apiKey });
+  const systemPrompt = await getPrompt("chatSystemPrompt");
+  const videoOnlyPrompt = await getPrompt("chatVideoOnlyPrompt");
+  const generalPrompt = await getPrompt("chatGeneralPrompt");
 
   const {
     message,
@@ -49,16 +54,16 @@ export async function POST(req: NextRequest) {
       .map((s) => `${formatMs(s.offset)} ${s.text}`)
       .join("\n");
     block1 =
-      `You are a helpful research assistant helping a learner study a YouTube video.\n` +
+      `${systemPrompt}\n` +
       `The video is titled: "${videoTitle ?? "Unknown"}"\n\n` +
       `FULL TRANSCRIPT:\n${transcriptText}`;
   } else if (videoTitle) {
     block1 =
-      `You are a helpful research assistant helping a learner study a YouTube video.\n` +
+      `${systemPrompt}\n` +
       `The video is titled: "${videoTitle}"\n` +
       `(No transcript available for this video.)`;
   } else {
-    block1 = `You are a helpful research assistant helping a learner study a YouTube video.`;
+    block1 = systemPrompt;
   }
 
   // Block 2: small dynamic block (uncached)
@@ -68,10 +73,8 @@ export async function POST(req: NextRequest) {
   // videoOnly = false = supplement with general knowledge, but don't reference content the
   // learner hasn't watched yet (treat post-timestamp content as unseen).
   const block2 = videoOnly
-    ? `The learner is currently at ${timeStr}.\n` +
-      `Answer using the full video transcript. Do not bring in any knowledge, facts, or opinions from outside this video.`
-    : `The learner is currently at ${timeStr}.\n` +
-      `Use both the video content and your general knowledge to give the most helpful answer.`;
+    ? `The learner is currently at ${timeStr}.\n${videoOnlyPrompt}`
+    : `The learner is currently at ${timeStr}.\n${generalPrompt}`;
 
   try {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

@@ -2,8 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { TranscriptSegment, Chapter } from "@/lib/youtube";
-
-type YTPlayer = { getCurrentTime: () => number; seekTo: (seconds: number, allowSeekAhead: boolean) => void };
+import { YTPlayer } from "@/lib/ytplayer";
 
 type Props = {
   transcript: TranscriptSegment[];

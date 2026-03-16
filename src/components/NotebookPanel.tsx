@@ -136,71 +136,42 @@ const NotebookPanel = forwardRef<NotebookHandle, Props>(function NotebookPanel(
 
       {/* Toolbar */}
       {editor && (
-        <div className="flex items-center gap-0.5 px-3 py-1.5 border-b border-gray-200 dark:border-gray-800 shrink-0 flex-wrap bg-gray-50 dark:bg-gray-900">
-          <ToolbarButton
-            onClick={() => editor.chain().focus().toggleBold().run()}
-            active={editor.isActive("bold")}
-            title="Bold"
-          >
-            <strong>B</strong>
+        <div className="flex items-center gap-0 px-2 h-9 border-b border-gray-200 dark:border-gray-800 shrink-0">
+          <ToolbarButton onClick={() => editor.chain().focus().toggleBold().run()} active={editor.isActive("bold")} title="Bold">
+            <IconBold />
           </ToolbarButton>
-          <ToolbarButton
-            onClick={() => editor.chain().focus().toggleItalic().run()}
-            active={editor.isActive("italic")}
-            title="Italic"
-          >
-            <em>I</em>
+          <ToolbarButton onClick={() => editor.chain().focus().toggleItalic().run()} active={editor.isActive("italic")} title="Italic">
+            <IconItalic />
           </ToolbarButton>
-          <ToolbarButton
-            onClick={() => editor.chain().focus().toggleStrike().run()}
-            active={editor.isActive("strike")}
-            title="Strikethrough"
-          >
-            <s>S</s>
+          <ToolbarButton onClick={() => editor.chain().focus().toggleStrike().run()} active={editor.isActive("strike")} title="Strikethrough">
+            <IconStrike />
           </ToolbarButton>
-          <div className="w-px h-3.5 bg-gray-200 dark:bg-gray-700 mx-1" />
-          <ToolbarButton
-            onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}
-            active={editor.isActive("heading", { level: 1 })}
-            title="Heading 1"
-          >
-            H1
+
+          <ToolbarDivider />
+
+          <ToolbarButton onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()} active={editor.isActive("heading", { level: 1 })} title="Heading 1">
+            <IconH1 />
           </ToolbarButton>
-          <ToolbarButton
-            onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}
-            active={editor.isActive("heading", { level: 2 })}
-            title="Heading 2"
-          >
-            H2
+          <ToolbarButton onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()} active={editor.isActive("heading", { level: 2 })} title="Heading 2">
+            <IconH2 />
           </ToolbarButton>
-          <div className="w-px h-3.5 bg-gray-200 dark:bg-gray-700 mx-1" />
-          <ToolbarButton
-            onClick={() => editor.chain().focus().toggleBulletList().run()}
-            active={editor.isActive("bulletList")}
-            title="Bullet list"
-          >
-            •—
+
+          <ToolbarDivider />
+
+          <ToolbarButton onClick={() => editor.chain().focus().toggleBulletList().run()} active={editor.isActive("bulletList")} title="Bullet list">
+            <IconBulletList />
           </ToolbarButton>
-          <ToolbarButton
-            onClick={() => editor.chain().focus().toggleOrderedList().run()}
-            active={editor.isActive("orderedList")}
-            title="Ordered list"
-          >
-            1.
+          <ToolbarButton onClick={() => editor.chain().focus().toggleOrderedList().run()} active={editor.isActive("orderedList")} title="Ordered list">
+            <IconOrderedList />
           </ToolbarButton>
-          <ToolbarButton
-            onClick={() => editor.chain().focus().toggleBlockquote().run()}
-            active={editor.isActive("blockquote")}
-            title="Blockquote"
-          >
-            ❝
+
+          <ToolbarDivider />
+
+          <ToolbarButton onClick={() => editor.chain().focus().toggleBlockquote().run()} active={editor.isActive("blockquote")} title="Blockquote">
+            <IconQuote />
           </ToolbarButton>
-          <ToolbarButton
-            onClick={() => editor.chain().focus().toggleCode().run()}
-            active={editor.isActive("code")}
-            title="Inline code"
-          >
-            `c`
+          <ToolbarButton onClick={() => editor.chain().focus().toggleCode().run()} active={editor.isActive("code")} title="Inline code">
+            <IconCode />
           </ToolbarButton>
         </div>
       )}
@@ -214,6 +185,10 @@ const NotebookPanel = forwardRef<NotebookHandle, Props>(function NotebookPanel(
 });
 
 export default NotebookPanel;
+
+function ToolbarDivider() {
+  return <div className="w-px h-4 bg-gray-200 dark:bg-gray-700 mx-1.5" />;
+}
 
 function ToolbarButton({
   onClick,
@@ -233,13 +208,114 @@ function ToolbarButton({
         onClick();
       }}
       title={title}
-      className={`px-2 py-1 text-[11px] rounded-md transition-colors font-mono ${
-        active
-          ? "bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300"
-          : "text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700 hover:text-gray-700 dark:hover:text-gray-200"
-      }`}
+      className={`
+        relative w-7 h-7 flex items-center justify-center rounded transition-colors duration-100
+        ${active
+          ? "text-gray-900 dark:text-gray-100 bg-gray-100 dark:bg-gray-800"
+          : "text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800"
+        }
+      `}
     >
       {children}
+      {active && (
+        <span className="absolute bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-blue-500" />
+      )}
     </button>
+  );
+}
+
+// ── Toolbar icons (16×16, stroke 1.75) ──────────────────────────────────────
+
+function IconBold() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M6 12h9a4 4 0 0 1 0 8H7a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h7a4 4 0 0 1 0 8" />
+    </svg>
+  );
+}
+
+function IconItalic() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="19" y1="4" x2="10" y2="4" />
+      <line x1="14" y1="20" x2="5" y2="20" />
+      <line x1="15" y1="4" x2="9" y2="20" />
+    </svg>
+  );
+}
+
+function IconStrike() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M16 4H9a3 3 0 0 0-2.83 4" />
+      <path d="M14 12a4 4 0 0 1 0 8H6" />
+      <line x1="4" y1="12" x2="20" y2="12" />
+    </svg>
+  );
+}
+
+function IconH1() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 12h8" />
+      <path d="M4 18V6" />
+      <path d="M12 18V6" />
+      <path d="m17 12 3-2v8" />
+    </svg>
+  );
+}
+
+function IconH2() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 12h8" />
+      <path d="M4 18V6" />
+      <path d="M12 18V6" />
+      <path d="M21 18h-4c0-4 4-3 4-6 0-1.5-2-2.5-4-1" />
+    </svg>
+  );
+}
+
+function IconBulletList() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="9" y1="6" x2="20" y2="6" />
+      <line x1="9" y1="12" x2="20" y2="12" />
+      <line x1="9" y1="18" x2="20" y2="18" />
+      <circle cx="4" cy="6" r="1" fill="currentColor" stroke="none" />
+      <circle cx="4" cy="12" r="1" fill="currentColor" stroke="none" />
+      <circle cx="4" cy="18" r="1" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
+function IconOrderedList() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="10" y1="6" x2="21" y2="6" />
+      <line x1="10" y1="12" x2="21" y2="12" />
+      <line x1="10" y1="18" x2="21" y2="18" />
+      <path d="M4 6h1v4" />
+      <path d="M4 10h2" />
+      <path d="M6 18H4c0-1 2-2 2-3s-1-1.5-2-1" />
+    </svg>
+  );
+}
+
+function IconQuote() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3 21c3 0 7-1 7-8V5c0-1.25-.756-2.017-2-2H4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V20c0 1 0 1 1 1z" />
+      <path d="M15 21c3 0 7-1 7-8V5c0-1.25-.757-2.017-2-2h-4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2h.75c0 2.25.25 4-2.75 4v3c0 1 0 1 1 1z" />
+    </svg>
+  );
+}
+
+function IconCode() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="16 18 22 12 16 6" />
+      <polyline points="8 6 2 12 8 18" />
+    </svg>
   );
 }

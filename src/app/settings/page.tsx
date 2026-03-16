@@ -12,7 +12,7 @@ export default async function SettingsPage() {
   return (
     <div className="flex flex-col h-screen bg-white dark:bg-gray-950">
       <ProjectTabBar />
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-hidden">
         <SettingsForm initialSettings={settings ?? {}} defaults={PROMPT_DEFAULTS} />
       </div>
     </div>

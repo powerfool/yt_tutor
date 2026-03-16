@@ -76,8 +76,8 @@ const NotebookPanel = forwardRef<NotebookHandle, Props>(function NotebookPanel(
         if (!editor) return;
         const nodes = markdownToTiptapContent(markdown);
         if (nodes.length === 0) return;
-        const existing = editor.getJSON().content ?? [];
-        editor.commands.setContent({ type: "doc", content: [...existing, ...nodes] });
+        const end = editor.state.doc.content.size;
+        editor.chain().insertContentAt(end, nodes).run();
       },
     }),
     [editor]

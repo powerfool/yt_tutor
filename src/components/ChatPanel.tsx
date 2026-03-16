@@ -59,7 +59,8 @@ export default function ChatPanel({ projectId, videoId, videoTitle, transcript, 
 
   useEffect(() => {
     if (!videoId || !messagesLoaded) return;
-    if (videoId === prevVideoIdRef.current) return;
+    const prevId = prevVideoIdRef.current;
+    if (videoId === prevId) return;
     prevVideoIdRef.current = videoId;
 
     setSuggestions(null);
@@ -72,7 +73,9 @@ export default function ChatPanel({ projectId, videoId, videoTitle, transcript, 
     // Restore or reset chat state based on whether a conversation exists
     setChatStarted(hasConvo);
 
-    // Always post "Started watching" when navigating to a different video
+    // Post "Started watching" on genuine navigation (not page-load restore).
+    // prevId === null means this is the initial mount restoring the last video.
+    if (prevId === null && hasConvo) return;
     const content = `Started watching: ${videoTitle ?? videoId}`;
     fetch(`/api/projects/${projectId}/messages`, {
       method: "POST",

@@ -23,12 +23,12 @@ function inlineNodes(nodes: MdastNode[]): TiptapNode[] {
         break;
       case "strong":
         for (const child of inlineNodes(n.children as MdastNode[])) {
-          result.push({ ...child, marks: [...(child.marks ?? []), { type: "bold" }] });
+          result.push({ ...child, marks: [{ type: "bold" }, ...(child.marks ?? [])] });
         }
         break;
       case "emphasis":
         for (const child of inlineNodes(n.children as MdastNode[])) {
-          result.push({ ...child, marks: [...(child.marks ?? []), { type: "italic" }] });
+          result.push({ ...child, marks: [{ type: "italic" }, ...(child.marks ?? [])] });
         }
         break;
       case "inlineCode":
@@ -42,8 +42,8 @@ function inlineNodes(nodes: MdastNode[]): TiptapNode[] {
           result.push({
             ...child,
             marks: [
-              ...(child.marks ?? []),
               { type: "link", attrs: { href: String(n.url), target: "_blank" } },
+              ...(child.marks ?? []),
             ],
           });
         }

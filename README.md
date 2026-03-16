@@ -28,7 +28,7 @@ When you open a video, Claude suggests four questions to get you started. As the
 
 **Quote in chat** — highlight any part of a response, hit "Quote in chat", and that text drops into your input as a blockquote. Ask a follow-up without retyping anything.
 
-![Ask Claude](/1-chat.jpg "Screenshot of AI Chat Interface")
+<img src="/1-chat.jpg" alt="Ask Claude" width="500" />
 ---
 
 ### Build a notebook
@@ -37,7 +37,7 @@ Everything worth keeping goes in the notebook — a rich text editor on the righ
 
 The notebook autosaves as you type. One notebook per project, always waiting where you left it.
 
-![Project Notebook](/2-notebook.jpg "Screenshot of the Project Notebook")
+<img src="/2-notebook.jpg" alt="Project Notebook" width="500" />
 
 ---
 

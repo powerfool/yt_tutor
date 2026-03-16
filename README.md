@@ -1,138 +1,81 @@
 # YT Tutor
 
-A personal YouTube player with an AI research sidebar and a persistent per-project notebook. Paste a YouTube URL, watch the video, ask Claude anything about it, and save what matters to a notebook that outlives any single session.
+**YT Tutor** turns passive YouTube watching into active learning. Paste a URL, and alongside the video you get an AI research partner and a personal notebook — all in one window, all saved automatically.
 
 Built for solo use — self-hosted, single user, runs on a VPS. API keys and AI prompts are configurable from the UI — no code changes needed after first deploy.
 
----
-
-## What it does
-
-YT Tutor replaces the experience of watching YouTube alone. Instead of pausing to open a new tab, googling something, losing your place, and forgetting what you were thinking — you have a three-panel interface:
-
-```
-┌──────────────────────┬───────────────────┬───────────────────────┐
-│  Video player        │  AI Chat          │  Notebook (TipTap)    │
-│  (YouTube)           │  (Claude)         │  (autosave)           │
-│                      │                   │                       │
-│  [Chapters][Transc.] │                   │                       │
-└──────────────────────┴───────────────────┴───────────────────────┘
-```
-
-- **Left:** YouTube video player. Below it: a two-column transcript panel — chapters on the left, full transcript on the right — both synced to playback. Watch history accessible via a dropdown in the URL bar.
-- **Center:** AI chat powered by Claude — ask anything, get streaming markdown responses, full conversation history persists per project.
-- **Right:** Rich-text notebook that autosaves, one per project.
-
 ![Screenshot](/screenshot.png "Screenshot")
+
 ---
 
 ## Features
 
-### Projects
-- Multiple named projects, like browser tabs or NotebookLM workspaces
-- Each project has its own independent chat history, notebook, and watch history
-- Switch between projects instantly from the tab bar at the top
-- Rename projects by double-clicking the tab
-- Everything persists — close the browser, come back, pick up exactly where you left off
+### Chapters & Transcripts
 
-### Video Player
-- Paste any YouTube URL (full URL, `youtu.be` short link, Shorts, embed URL, or bare video ID)
-- Video persists across page reloads — the same video reloads automatically at the timestamp you left it (no autoplay; video is ready but waits for you to press play)
-- Watch history recorded per project; accessible via the clock icon button in the URL bar (dropdown, lazy-loaded; selecting a video loads it in the player)
+Paste any YouTube URL and the video loads instantly. As it plays, a live transcript scrolls alongside it — click any line to jump the player to that moment. If the video has chapters, they appear in a panel on the left; YT Tutor will generate them automatically from the transcript if the video doesn't.
 
-### AI Chat
-- Powered by Claude (`claude-sonnet-4-6`) with streaming responses (up to 4096 tokens)
-- **"Start conversation" button** — when a video is loaded, click to kick off the session; Claude generates 4 suggested questions and, if no YouTube description chapters were found, automatically generates video chapters from the transcript
-- **Suggestion chips** — appear above the input whenever a video is loaded; click to pre-fill the textarea (editable before sending); refresh at any time with the "Suggest" button
-- **Loading indicator** — bottom bar shows "Loading video…" while the transcript and metadata are being fetched
-- Suggestions are context-aware: on a fresh start Claude picks broad, interesting questions freely; once chapters exist, suggestions focus on the current chapter; with conversation history, they build on what's been discussed
-- **Video only (default):** Claude draws exclusively on the full transcript — no outside knowledge; best for staying focused on the material
-- **Open knowledge (toggle):** Unlocks Claude's general knowledge in addition to the transcript — useful for broader questions
-- The full transcript is always sent as context (prompt-cached — after the first message, transcript tokens cost 10% of normal)
-- Chat history is a continuous log across all videos watched in a project
-- When you load a new video, a system message appears inline: *"Started watching: Video Title"*
-- Assistant responses render as markdown (bold, lists, code blocks, tables, etc.)
-- **Copy to notebook** — hover any AI response to reveal a "→ Notebook" button; copies the full message with markdown formatting preserved (bold, lists, headings, code blocks all transfer as rich text)
-- **Text selection popup** — select any text in chat to reveal two actions: **"Quote in chat"** (inserts the selection as a markdown blockquote in the input so you can ask Claude for clarification) and **"→ Notebook"** (appends as plain text)
-- Graceful error handling for API credit issues, rate limits, and network errors
+Your place is saved. Close the tab, come back later — the video resumes exactly where you left off.
 
-### Chapters
-- Sourced in priority order: **DB-cached chapters** → **YouTube description chapters** → **Claude-generated chapters**
-- **YouTube description chapters** — if the video has timestamps in its description (the standard YouTube chapters format), they are parsed automatically on load with no AI call required; auto-saved to DB on first fetch
-- **Claude-generated chapters** — if no YouTube chapters exist, clicking "Start conversation" triggers Claude to analyse the full transcript and identify 4–8 topic chapters; these are saved to DB and never overwritten by subsequent fetches
-- Displayed in the left column of the transcript panel; clicking any chapter seeks the player to that point
-- Active chapter highlighted with a blue tint background and auto-scrolled as the video plays
-- Timestamps display as `m:ss` or `h:mm:ss` depending on video length
-- Chapters reset automatically when a new video is loaded
+---
 
-### Transcript Panel
-- Always visible below the video player — shows a loading skeleton while fetching, empty state if unavailable
-- **DB-cached:** transcript is saved to the database on first load; subsequent visits to the same video skip the YouTube fetch entirely and use the cached copy
-- Two-stage fetch (first load only): direct scrape of YouTube's caption data first; falls back to `yt-dlp` for videos where YouTube's session-bound URLs block server-side access
-- Two-column layout when chapters are available: chapters on the left, full transcript on the right
-- Active segment highlighted with a blue left-border indicator and auto-scrolled to as the video plays; active segment kept at ~25% from the top of the panel
-- Pauses auto-scroll for 5 seconds when you manually scroll, then resumes
-- **Click any line to jump the video to that timestamp**
-- Text is selectable
+### Ask Claude anything
 
-### Copy to Notebook
-- **Per-message button:** hover any AI response → "→ Notebook" appears; copies the full message as formatted rich text (markdown preserved — bullets become real lists, bold stays bold, etc.)
-- **Selection popup:** select any text in the chat → a popup floats above your selection with two actions: "Quote in chat" and "→ Notebook"
-- Both notebook methods append to the end of the current notebook and trigger autosave
+A full AI chat panel sits next to the video, powered by Claude. Ask about something you just heard, request a summary, go deeper on a concept. Claude has the full transcript in context, so its answers are grounded in the actual video — not generic search results.
+
+**Video only mode** (default) keeps Claude strictly on the video content — useful when you want answers from the source, not outside opinion. Toggle it off to bring in Claude's broader knowledge.
+
+When you open a video, Claude suggests four questions to get you started. As the conversation develops, suggestions shift to follow what you've been discussing. You can refresh them any time.
+
+**Quote in chat** — highlight any part of a response, hit "Quote in chat", and that text drops into your input as a blockquote. Ask a follow-up without retyping anything.
+
+---
+
+### Build a notebook
+
+Everything worth keeping goes in the notebook — a rich text editor on the right. Hover any AI response to copy it straight to the notebook with full formatting intact (bullet points, bold text, code blocks — all preserved). Or select any text in chat and copy just that snippet.
+
+The notebook autosaves as you type. One notebook per project, always waiting where you left it.
+
+---
+
+### Organize with projects
+
+Projects work like browser tabs for your research. Each one has its own video history, chat log, and notebook. Switch between them instantly from the tab bar. Rename them by double-clicking. Nothing bleeds between projects.
+
+---
 
 ### Settings
-- **Gear icon** in the top-right of the tab bar → `/settings`
-- **General section:** set your Anthropic API key and YouTube Data API key directly in the UI; these override the corresponding env vars and are stored in the database; leave blank to fall back to env vars
-- **Danger Zone:** override any of the AI prompt templates (chat system prompt, video-only / general-knowledge instructions, suggestion prompts, chapter generation prompts) — leave a field blank to use the built-in default; the placeholder text always shows the current default so you can see what you're replacing
-- Suggestion prompts support `{{CHAPTER}}` and `{{TIME}}` placeholders which are substituted at runtime
-- All settings are scoped to the singleton `Settings` row in the database and take effect immediately (no restart needed)
 
-### Notebook
-- Rich text editor (TipTap) with a formatting toolbar: bold, italic, strikethrough, H1/H2, bullet lists, ordered lists, blockquotes, inline code
-- Debounced autosave — saves 800ms after you stop typing, silently in the background
-- "saved / saving… / unsaved" status indicator in the header
-- One notebook per project; content persists across sessions
+A gear icon in the tab bar opens the settings page. Add your Anthropic and YouTube API keys directly in the UI — no config file edits needed after the first deploy. You can also override any of the AI prompts if you want to tune how Claude behaves.
 
-### Watch History
-- Per-project list of every video watched, with relative timestamps ("5m ago", "2h ago")
-- Accessible via the clock icon button to the left of the YouTube URL input (opens a dropdown)
-- Each entry links to the video on YouTube (opens in a new tab)
-- Refreshes automatically when a new video loads
+---
 
-### Dark Mode
-- Follows your system preference automatically (`prefers-color-scheme`)
-- No manual toggle needed — switches instantly with your OS
+### Everything persists
+
+- Chat history survives page reloads — scroll back through the full conversation
+- Transcripts are cached after the first load — revisiting a video is instant
+- Video timestamp, notebook content, chapters — all saved automatically
+- Dark mode follows your system preference
 
 ---
 
 ## Tech Stack
 
-| Layer | Technology |
+| | |
 |---|---|
-| Framework | Next.js 16 (App Router, TypeScript, Tailwind CSS v4) |
-| Database | SQLite via Prisma 6 |
-| Auth | NextAuth v5 (credentials provider, single user) |
+| Framework | Next.js (App Router, TypeScript, Tailwind CSS v4) |
+| Database | SQLite via Prisma |
+| Auth | NextAuth v5 (credentials, single user) |
 | AI | Anthropic Claude API (streaming, prompt caching) |
-| Video playback | YouTube IFrame Player API |
-| Transcripts & metadata | YouTube Data API v3 + yt-dlp fallback |
-| Rich text | TipTap 3 with StarterKit |
-| Markdown rendering | react-markdown + remark-gfm |
-| Markdown → rich text | unified + remark-parse + remark-gfm (mdast → HTML → TipTap) |
-| Process manager | PM2 (VPS deployment) |
+| Video | YouTube IFrame Player API + Data API v3 |
+| Transcripts | Direct YouTube caption fetch + yt-dlp fallback |
+| Rich text | TipTap |
 
 ---
 
-## Prerequisites
+## Getting Started
 
-- Node.js 18+
-- npm
-- **yt-dlp** — used as a fallback transcript fetcher for videos where YouTube blocks server-side caption access
-- A [YouTube Data API v3 key](https://console.cloud.google.com/) — for fetching video metadata
-- An [Anthropic API key](https://console.anthropic.com/) — for Claude AI chat
-
----
-
-## Installation
+**Prerequisites:** Node.js 18+, [yt-dlp](https://github.com/yt-dlp/yt-dlp), an [Anthropic API key](https://console.anthropic.com/), and a [YouTube Data API v3 key](https://console.cloud.google.com/).
 
 ```bash
 git clone https://github.com/powerfool/yt_tutor.git
@@ -141,78 +84,35 @@ npm install
 npx prisma generate
 ```
 
-Install yt-dlp (required for transcript fallback):
-
-```bash
-# macOS
-brew install yt-dlp
-
-# Linux / VPS
-curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp
-chmod +x /usr/local/bin/yt-dlp
-```
-
----
-
-## Configuration
-
-Copy `.env.example` to `.env` and fill in all values:
-
-```bash
-cp .env.example .env
-```
+Copy `.env.example` to `.env` and fill in:
 
 ```env
 DATABASE_URL="file:./prisma/dev.db"
 
-# NextAuth — generate AUTH_SECRET with: openssl rand -base64 32
+# NextAuth — generate with: openssl rand -base64 32
 AUTH_SECRET="your-random-secret"
 AUTH_URL="http://localhost:3000"
 
-# Single admin user credentials
 ADMIN_USERNAME="your-username"
 
-# Generate a bcrypt hash of your password (cost factor 10):
-#   node -e "const b = require('bcryptjs'); b.hash('your-password', 10).then(console.log)"
-# Then escape every $ with \$ in the .env file:
-ADMIN_PASSWORD_HASH=\$2b\$10\$...your-hash-here...
+# Generate: node -e "const b = require('bcryptjs'); b.hash('your-password', 10).then(console.log)"
+# Escape every $ as \$ in this file
+ADMIN_PASSWORD_HASH=\$2b\$10\$...
 
-# API keys — server-side only, never sent to the browser
-# These can also be set (or overridden) from the Settings page in the UI after first run.
 ANTHROPIC_API_KEY="sk-ant-..."
 YOUTUBE_API_KEY="AIza..."
 ```
 
-> **Important:** Every `$` in the bcrypt hash **must** be escaped as `\$` in the `.env` file. Next.js uses `dotenv-expand` which interprets unescaped `$` as variable references and will corrupt the hash silently.
+> **Note:** Every `$` in the bcrypt hash must be escaped as `\$` — Next.js will silently corrupt it otherwise.
 
----
-
-## Running Locally
+Then:
 
 ```bash
-# Apply database migrations
 npx prisma migrate dev
-
-# Start the dev server
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000). You'll be redirected to `/login` — sign in with the username and password you configured above.
-
----
-
-## Database Management
-
-```bash
-# Apply schema changes (creates a migration file)
-npx prisma migrate dev --name describe-your-change
-
-# Inspect the database in a browser GUI
-npx prisma studio
-
-# Regenerate the Prisma client after schema changes
-npx prisma generate
-```
+Open [http://localhost:3000](http://localhost:3000) and sign in. API keys can also be updated any time from the Settings page in the UI.
 
 ---
 
@@ -238,80 +138,11 @@ pm2 logs yt-tutor
 
 Make sure `.env` is populated on the server and `AUTH_URL` points to your public domain (e.g. `https://yourdomain.com`).
 
----
-
-## Project Structure
-
-```
-src/
-  app/
-    login/                     Login page (unauthenticated)
-    project/[id]/              Main project page (three-panel layout)
-    settings/                  Settings page (API keys + prompt overrides)
-    api/
-      auth/                    NextAuth handler
-      chat/                    Streaming Claude API route
-        suggest/               POST — generate context-aware suggested questions
-        chapters/              POST — generate topic chapters from transcript
-      projects/                GET all projects, POST new project
-      projects/[id]/           PATCH (rename, set current video), DELETE project
-        messages/              GET + POST chat messages for a project
-        notebook/              GET + PATCH notebook content
-        watch-history/         GET + POST watch history
-      settings/                GET + PATCH singleton settings row
-      youtube/[videoId]/       GET video title + transcript (server-side proxy)
-  components/
-    ProjectTabBar.tsx           Top tab bar — projects, gear icon → /settings
-    ProjectClient.tsx           Client shell — shared video/transcript/chapter/player state
-    VideoPanel.tsx              YouTube IFrame player + URL bar + history dropdown + timestamp persistence
-    TranscriptPanel.tsx         Two-column layout: chapters (left) + timestamp-synced transcript (right)
-    ChatPanel.tsx               Streaming AI chat, suggestions, video-only toggle, quote-in-chat, copy-to-notebook
-    NotebookPanel.tsx           TipTap editor — toolbar, autosave, appendText + appendMarkdown
-    SettingsForm.tsx            Settings page form — API keys, prompt overrides
-    WatchHistoryPanel.tsx       (used inside VideoPanel dropdown) per-project watched videos
-  lib/
-    youtube.ts                  Client-safe helpers (parseVideoId, TranscriptSegment, Chapter types)
-    youtube.server.ts           Server-only transcript + metadata fetch (Node.js + yt-dlp)
-    settings.ts                 Server-only — resolves API keys and prompts (DB override → env var → default)
-    ytplayer.ts                 Shared YTPlayer type used across player-aware components
-    markdownToTiptap.ts         Markdown → HTML via mdast walk; used for rich-text notebook insertion
-    prisma.ts                   Prisma singleton with absolute DB path resolution
-  auth.ts                       NextAuth v5 config (credentials provider)
-  proxy.ts                      Auth middleware — redirects unauthenticated requests
-prisma/
-  schema.prisma                 Data model
-  dev.db                        SQLite database (gitignored)
-ecosystem.config.js             PM2 process config
-```
-
----
-
-## Data Model
-
-```
-Project       id, name, currentVideoId, createdAt, updatedAt
-WatchHistory  id, projectId, videoId, videoTitle, watchedAt, transcriptJson, chapters
-Message       id, projectId, role (user|assistant|system), content, videoId, createdAt
-Notebook      id, projectId, content (TipTap JSON string), updatedAt
-Settings      id ("singleton"), anthropicApiKey?, youtubeApiKey?, [9 prompt override fields]
-```
-
-- One notebook per project (auto-created on first access)
-- Chat messages are a continuous log scoped to the project, not to individual videos
-- `currentVideoId` on Project stores the last-watched video for reload persistence; playback timestamp is stored in `localStorage` keyed by project ID
-- `transcriptJson` on WatchHistory caches the full transcript after the first fetch — subsequent loads of the same video skip the YouTube API call entirely
-- `chapters` on WatchHistory caches parsed or Claude-generated chapters; once saved, they are never overwritten by new fetches
-- `Settings` is a singleton row (`id = "singleton"`); all fields are optional — unset fields fall back to env vars (API keys) or hardcoded defaults (prompts)
-
----
-
 ## Security
 
 - All API routes require a valid session — unauthenticated requests return 401
-- YouTube and Anthropic API keys live in server-side env vars only, never sent to the browser
-- All YouTube and Claude API calls are proxied through Next.js API routes
-- CSRF protection via NextAuth built-ins
-- SQLite database file lives outside the web root
+- API keys are server-side only, never sent to the browser
+- All YouTube and Claude calls are proxied through Next.js API routes
 
 ---
 

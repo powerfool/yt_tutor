@@ -26,4 +26,15 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       return session;
     },
   },
+  events: {
+    async createUser({ user }) {
+      // First-ever login: seed a welcome project so the app isn't empty
+      await prisma.project.create({
+        data: {
+          name: "My First Project",
+          userId: user.id!,
+        },
+      });
+    },
+  },
 });

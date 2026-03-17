@@ -1,8 +1,8 @@
 import { auth } from "@/auth";
 import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
-import { TranscriptSegment } from "@/lib/youtube";
 import { getAnthropicApiKey, getPrompt } from "@/lib/settings";
+import { getVideoData } from "@/lib/transcript";
 
 type HistoryMessage = { role: "user" | "assistant"; content: string };
 type CurrentChapter = { title: string; startTimeSec: number } | null;
@@ -26,31 +26,34 @@ function formatSec(sec: number): string {
 
 export async function POST(req: NextRequest) {
   const session = await auth();
-  if (!session) return new NextResponse(null, { status: 401 });
+  if (!session?.user?.id) return new NextResponse(null, { status: 401 });
+  const userId = session.user.id;
 
-  const apiKey = await getAnthropicApiKey();
+  const apiKey = await getAnthropicApiKey(userId);
   const client = new Anthropic({ apiKey });
-  const systemPrompt = await getPrompt("chatSystemPrompt");
+  const systemPrompt = await getPrompt(userId, "chatSystemPrompt");
   const templates = {
-    freshNoChapter: await getPrompt("suggestFreshNoChapter"),
-    freshWithChapter: await getPrompt("suggestFreshWithChapter"),
-    historyWithChapter: await getPrompt("suggestHistoryWithChapter"),
-    historyNoChapter: await getPrompt("suggestHistoryNoChapter"),
+    freshNoChapter: await getPrompt(userId, "suggestFreshNoChapter"),
+    freshWithChapter: await getPrompt(userId, "suggestFreshWithChapter"),
+    historyWithChapter: await getPrompt(userId, "suggestHistoryWithChapter"),
+    historyNoChapter: await getPrompt(userId, "suggestHistoryNoChapter"),
   };
 
   const {
-    transcript,
-    videoTitle,
+    videoId,
     currentTimeSec,
     history,
     currentChapter,
   }: {
-    transcript: TranscriptSegment[] | null;
-    videoTitle: string | null;
+    videoId: string | null;
     currentTimeSec: number;
     history: HistoryMessage[];
     currentChapter: CurrentChapter;
   } = await req.json();
+
+  const { transcript, videoTitle } = videoId
+    ? await getVideoData(videoId, userId)
+    : { transcript: null, videoTitle: null };
 
   // System block 1: full transcript context (cached)
   let block1: string;

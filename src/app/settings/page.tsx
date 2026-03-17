@@ -7,8 +7,8 @@ import SettingsForm from "@/components/SettingsForm";
 
 export default async function SettingsPage() {
   const session = await auth();
-  if (!session) redirect("/login");
-  const settings = await prisma.settings.findUnique({ where: { id: "singleton" } });
+  if (!session?.user?.id) redirect("/login");
+  const settings = await prisma.userSettings.findUnique({ where: { userId: session.user.id } });
   return (
     <div className="flex flex-col h-screen bg-white dark:bg-gray-950">
       <ProjectTabBar />

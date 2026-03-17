@@ -180,8 +180,7 @@ export default function ChatPanel({ projectId, videoId, videoTitle, transcript, 
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          transcript,
-          videoTitle,
+          videoId,
           currentTimeSec: playerRef.current?.getCurrentTime() ?? 0,
           history: buildHistory(),
           currentChapter: getCurrentChapter(),
@@ -197,12 +196,12 @@ export default function ChatPanel({ projectId, videoId, videoTitle, transcript, 
   }
 
   async function fetchChapters() {
-    if (!transcript || transcript.length === 0 || !onChaptersGenerated) return;
+    if (!videoId || !transcript || transcript.length === 0 || !onChaptersGenerated) return;
     try {
       const res = await fetch("/api/chat/chapters", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ transcript, videoTitle }),
+        body: JSON.stringify({ videoId }),
       });
       if (res.ok) {
         const { chapters } = await res.json();
@@ -260,8 +259,7 @@ export default function ChatPanel({ projectId, videoId, videoTitle, transcript, 
         message: userText,
         history: buildHistory(),
         videoOnly,
-        transcript,
-        videoTitle,
+        videoId,
         currentTimeSec: playerRef.current?.getCurrentTime() ?? 0,
       }),
     });

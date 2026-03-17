@@ -141,8 +141,9 @@ function IconEye({ open }: { open: boolean }) {
 export default function SettingsForm({ initialSettings, defaults }: Props) {
   const [form, setForm] = useState<Record<string, string>>(() => {
     const initial: Record<string, string> = {};
+    // API keys always start empty — never pre-fill with the "set" sentinel from server
     for (const key of ["anthropicApiKey", "youtubeApiKey"]) {
-      initial[key] = (initialSettings[key] as string) ?? "";
+      initial[key] = "";
     }
     for (const key of Object.keys(defaults) as PromptKey[]) {
       // Show the saved override, or the built-in default so it's editable
@@ -152,8 +153,21 @@ export default function SettingsForm({ initialSettings, defaults }: Props) {
   });
 
   const router = useRouter();
-  const [showAnthropicKey, setShowAnthropicKey] = useState(false);
-  const [showYoutubeKey, setShowYoutubeKey] = useState(false);
+
+  // API key state: track whether each key is configured and whether user is editing it
+  const [anthropicConfigured, setAnthropicConfigured] = useState(
+    initialSettings.anthropicApiKey === "set"
+  );
+  const [youtubeConfigured, setYoutubeConfigured] = useState(
+    initialSettings.youtubeApiKey === "set"
+  );
+  const [anthropicEditing, setAnthropicEditing] = useState(
+    initialSettings.anthropicApiKey !== "set"
+  );
+  const [youtubeEditing, setYoutubeEditing] = useState(
+    initialSettings.youtubeApiKey !== "set"
+  );
+
   const [status, setStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [activeSection, setActiveSection] = useState<Section>("api-keys");
   const totalOverrides = customizedCount([...CHAT_KEYS, ...SUGGEST_KEYS, ...CHAPTER_KEYS]);
@@ -187,12 +201,31 @@ export default function SettingsForm({ initialSettings, defaults }: Props) {
           payload[key] = "";
         }
       }
+      // Only include API keys when the user is actively entering a new value.
+      // An empty input while editing means "leave unchanged" (not "clear").
+      if (!anthropicEditing || !payload.anthropicApiKey) {
+        delete payload.anthropicApiKey;
+      }
+      if (!youtubeEditing || !payload.youtubeApiKey) {
+        delete payload.youtubeApiKey;
+      }
       const res = await fetch("/api/settings", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
       if (!res.ok) throw new Error("Save failed");
+      // After saving a new key, transition back to "configured" state
+      if (anthropicEditing && payload.anthropicApiKey) {
+        setAnthropicConfigured(true);
+        setAnthropicEditing(false);
+        set("anthropicApiKey", "");
+      }
+      if (youtubeEditing && payload.youtubeApiKey) {
+        setYoutubeConfigured(true);
+        setYoutubeEditing(false);
+        set("youtubeApiKey", "");
+      }
       setStatus("saved");
     } catch {
       setStatus("error");
@@ -303,7 +336,18 @@ export default function SettingsForm({ initialSettings, defaults }: Props) {
       {/* ── Right content area ───────────────────────────── */}
       <div ref={contentRef} className="flex-1 overflow-y-auto">
         <div className="max-w-2xl px-8 py-8">
-          {activeSection === "api-keys" && <ApiKeysSection form={form} set={set} showAnthropicKey={showAnthropicKey} setShowAnthropicKey={setShowAnthropicKey} showYoutubeKey={showYoutubeKey} setShowYoutubeKey={setShowYoutubeKey} />}
+          {activeSection === "api-keys" && (
+            <ApiKeysSection
+              form={form}
+              set={set}
+              anthropicConfigured={anthropicConfigured}
+              anthropicEditing={anthropicEditing}
+              setAnthropicEditing={setAnthropicEditing}
+              youtubeConfigured={youtubeConfigured}
+              youtubeEditing={youtubeEditing}
+              setYoutubeEditing={setYoutubeEditing}
+            />
+          )}
           {activeSection === "prompts" && (
             <div className="space-y-10">
               {/* Danger callout */}
@@ -329,22 +373,27 @@ export default function SettingsForm({ initialSettings, defaults }: Props) {
 interface ApiKeysSectionProps {
   form: Record<string, string>;
   set: (key: string, value: string) => void;
-  showAnthropicKey: boolean;
-  setShowAnthropicKey: (v: boolean | ((p: boolean) => boolean)) => void;
-  showYoutubeKey: boolean;
-  setShowYoutubeKey: (v: boolean | ((p: boolean) => boolean)) => void;
+  anthropicConfigured: boolean;
+  anthropicEditing: boolean;
+  setAnthropicEditing: (v: boolean) => void;
+  youtubeConfigured: boolean;
+  youtubeEditing: boolean;
+  setYoutubeEditing: (v: boolean) => void;
 }
 
 function ApiKeysSection({
   form, set,
-  showAnthropicKey, setShowAnthropicKey,
-  showYoutubeKey, setShowYoutubeKey,
+  anthropicConfigured, anthropicEditing, setAnthropicEditing,
+  youtubeConfigured, youtubeEditing, setYoutubeEditing,
 }: ApiKeysSectionProps) {
+  const [showAnthropic, setShowAnthropic] = useState(false);
+  const [showYoutube, setShowYoutube] = useState(false);
+
   return (
     <div className="space-y-8">
       <SectionHeader
         title="API Keys"
-        description="Your service credentials are stored locally and are never shared. Leave a field blank to fall back to the corresponding environment variable."
+        description="Your service credentials are stored on the server and never returned to the browser. Leave a field blank to fall back to the corresponding environment variable."
       />
 
       <FieldCard>
@@ -359,9 +408,13 @@ function ApiKeysSection({
             </>
           }
           value={form.anthropicApiKey}
-          show={showAnthropicKey}
+          configured={anthropicConfigured}
+          editing={anthropicEditing}
+          show={showAnthropic}
           onChange={(v) => set("anthropicApiKey", v)}
-          onToggle={() => setShowAnthropicKey((p) => !p)}
+          onToggle={() => setShowAnthropic((p) => !p)}
+          onStartEdit={() => setAnthropicEditing(true)}
+          onCancelEdit={() => { setAnthropicEditing(false); set("anthropicApiKey", ""); }}
         />
       </FieldCard>
 
@@ -382,9 +435,13 @@ function ApiKeysSection({
             </>
           }
           value={form.youtubeApiKey}
-          show={showYoutubeKey}
+          configured={youtubeConfigured}
+          editing={youtubeEditing}
+          show={showYoutube}
           onChange={(v) => set("youtubeApiKey", v)}
-          onToggle={() => setShowYoutubeKey((p) => !p)}
+          onToggle={() => setShowYoutube((p) => !p)}
+          onStartEdit={() => setYoutubeEditing(true)}
+          onCancelEdit={() => { setYoutubeEditing(false); set("youtubeApiKey", ""); }}
         />
       </FieldCard>
     </div>
@@ -517,32 +574,66 @@ interface KeyFieldProps {
   placeholder: string;
   helpText: React.ReactNode;
   value: string;
+  configured: boolean;
+  editing: boolean;
   show: boolean;
   onChange: (v: string) => void;
   onToggle: () => void;
+  onStartEdit: () => void;
+  onCancelEdit: () => void;
 }
 
-function KeyField({ label, placeholder, helpText, value, show, onChange, onToggle }: KeyFieldProps) {
+function KeyField({ label, placeholder, helpText, value, configured, editing, show, onChange, onToggle, onStartEdit, onCancelEdit }: KeyFieldProps) {
   return (
     <div className="space-y-2">
       <label className="block text-sm font-medium text-gray-800 dark:text-gray-200">{label}</label>
-      <div className="flex gap-2">
-        <input
-          type={show ? "text" : "password"}
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder={placeholder}
-          className="flex-1 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/60 px-3 py-2 text-sm font-mono text-gray-900 dark:text-gray-100 placeholder-gray-300 dark:placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-        />
-        <button
-          type="button"
-          onClick={onToggle}
-          title={show ? "Hide key" : "Reveal key"}
-          className="px-2.5 rounded-lg border border-gray-200 dark:border-gray-700 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-        >
-          <IconEye open={show} />
-        </button>
-      </div>
+      {configured && !editing ? (
+        <div className="flex gap-2 items-center">
+          <div className="flex-1 flex items-center gap-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/60 px-3 py-2">
+            <span className="text-sm font-mono text-gray-400 dark:text-gray-500 tracking-widest select-none">
+              ••••••••••••••••
+            </span>
+            <span className="ml-auto text-[11px] font-medium text-green-600 dark:text-green-400">
+              Configured
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={onStartEdit}
+            className="px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+          >
+            Change
+          </button>
+        </div>
+      ) : (
+        <div className="flex gap-2">
+          <input
+            type={show ? "text" : "password"}
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            placeholder={placeholder}
+            autoFocus={configured}
+            className="flex-1 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/60 px-3 py-2 text-sm font-mono text-gray-900 dark:text-gray-100 placeholder-gray-300 dark:placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          />
+          <button
+            type="button"
+            onClick={onToggle}
+            title={show ? "Hide key" : "Reveal key"}
+            className="px-2.5 rounded-lg border border-gray-200 dark:border-gray-700 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+          >
+            <IconEye open={show} />
+          </button>
+          {configured && (
+            <button
+              type="button"
+              onClick={onCancelEdit}
+              className="px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+            >
+              Cancel
+            </button>
+          )}
+        </div>
+      )}
       <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed">{helpText}</p>
     </div>
   );

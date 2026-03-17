@@ -5,9 +5,12 @@ import ProjectTabBar from "@/components/ProjectTabBar";
 
 export default async function HomePage() {
   const session = await auth();
-  if (!session) redirect("/login");
+  if (!session?.user?.id) redirect("/login");
 
-  const first = await prisma.project.findFirst({ orderBy: { createdAt: "asc" } });
+  const first = await prisma.project.findFirst({
+    where: { userId: session.user.id },
+    orderBy: { createdAt: "asc" },
+  });
   if (first) redirect(`/project/${first.id}`);
 
   // No projects yet — show empty state with tab bar

@@ -7,7 +7,8 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const session = await auth();
-  if (!session) return new NextResponse(null, { status: 401 });
+  if (!session?.user?.id) return new NextResponse(null, { status: 401 });
+  const userId = session.user.id;
 
   const { id } = await params;
   const body = await req.json();
@@ -31,7 +32,7 @@ export async function PATCH(
   }
 
   const project = await prisma.project.update({
-    where: { id },
+    where: { id, userId },
     data,
   });
 
@@ -43,10 +44,11 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const session = await auth();
-  if (!session) return new NextResponse(null, { status: 401 });
+  if (!session?.user?.id) return new NextResponse(null, { status: 401 });
+  const userId = session.user.id;
 
   const { id } = await params;
-  await prisma.project.delete({ where: { id } });
+  await prisma.project.delete({ where: { id, userId } });
 
   return new NextResponse(null, { status: 204 });
 }

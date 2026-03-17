@@ -2,14 +2,22 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { NextRequest, NextResponse } from "next/server";
 
+async function ownedProject(projectId: string, userId: string) {
+  return prisma.project.findUnique({ where: { id: projectId, userId } });
+}
+
 export async function GET(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const session = await auth();
-  if (!session) return new NextResponse(null, { status: 401 });
+  if (!session?.user?.id) return new NextResponse(null, { status: 401 });
 
   const { id: projectId } = await params;
+  if (!await ownedProject(projectId, session.user.id)) {
+    return new NextResponse(null, { status: 404 });
+  }
+
   const messages = await prisma.message.findMany({
     where: { projectId },
     orderBy: { createdAt: "asc" },
@@ -23,9 +31,13 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const session = await auth();
-  if (!session) return new NextResponse(null, { status: 401 });
+  if (!session?.user?.id) return new NextResponse(null, { status: 401 });
 
   const { id: projectId } = await params;
+  if (!await ownedProject(projectId, session.user.id)) {
+    return new NextResponse(null, { status: 404 });
+  }
+
   const { role, content, videoId } = await req.json();
 
   const message = await prisma.message.create({
@@ -40,9 +52,13 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const session = await auth();
-  if (!session) return new NextResponse(null, { status: 401 });
+  if (!session?.user?.id) return new NextResponse(null, { status: 401 });
 
   const { id: projectId } = await params;
+  if (!await ownedProject(projectId, session.user.id)) {
+    return new NextResponse(null, { status: 404 });
+  }
+
   await prisma.message.deleteMany({ where: { projectId } });
 
   return new NextResponse(null, { status: 204 });

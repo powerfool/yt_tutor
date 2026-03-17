@@ -3,29 +3,32 @@ import { prisma } from "@/lib/prisma";
 
 type SettingsRow = Record<string, string | null>;
 
-let cached: SettingsRow | null = null;
+// Per-user in-memory cache
+const cache = new Map<string, SettingsRow | null>();
 
-async function loadSettings(): Promise<SettingsRow | null> {
-  const row = await prisma.settings.findUnique({ where: { id: "singleton" } });
+async function loadSettings(userId: string): Promise<SettingsRow | null> {
+  const row = await prisma.userSettings.findUnique({ where: { userId } });
   return row as SettingsRow | null;
 }
 
-export async function getSettings(): Promise<SettingsRow | null> {
-  if (!cached) cached = await loadSettings();
-  return cached;
+export async function getSettings(userId: string): Promise<SettingsRow | null> {
+  if (cache.has(userId)) return cache.get(userId) ?? null;
+  const settings = await loadSettings(userId);
+  cache.set(userId, settings);
+  return settings;
 }
 
-export function invalidateSettingsCache() {
-  cached = null;
+export function invalidateSettingsCache(userId: string) {
+  cache.delete(userId);
 }
 
-export async function getAnthropicApiKey(): Promise<string | undefined> {
-  const s = await getSettings();
+export async function getAnthropicApiKey(userId: string): Promise<string | undefined> {
+  const s = await getSettings(userId);
   return s?.anthropicApiKey || process.env.ANTHROPIC_API_KEY;
 }
 
-export async function getYoutubeApiKey(): Promise<string | undefined> {
-  const s = await getSettings();
+export async function getYoutubeApiKey(userId: string): Promise<string | undefined> {
+  const s = await getSettings(userId);
   return s?.youtubeApiKey || process.env.YOUTUBE_API_KEY;
 }
 
@@ -47,8 +50,8 @@ export const PROMPT_DEFAULTS = {
 
 export type PromptKey = keyof typeof PROMPT_DEFAULTS;
 
-export async function getPrompt(key: PromptKey): Promise<string> {
-  const s = await getSettings();
+export async function getPrompt(userId: string, key: PromptKey): Promise<string> {
+  const s = await getSettings(userId);
   const override = s?.[key] as string | null | undefined;
   return override || PROMPT_DEFAULTS[key];
 }

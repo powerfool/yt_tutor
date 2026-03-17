@@ -27,8 +27,8 @@ function parseChaptersFromDescription(description: string): Chapter[] | null {
 }
 
 /** Fetch video title + any chapters embedded in the description. */
-export async function fetchVideoInfo(videoId: string): Promise<{ title: string; ytChapters: Chapter[] | null }> {
-  const apiKey = await getYoutubeApiKey();
+export async function fetchVideoInfo(videoId: string, userId: string): Promise<{ title: string; ytChapters: Chapter[] | null }> {
+  const apiKey = await getYoutubeApiKey(userId);
   const url = `https://www.googleapis.com/youtube/v3/videos?part=snippet&id=${videoId}&key=${apiKey}`;
   const res = await fetch(url);
   const data = await res.json();
@@ -39,8 +39,8 @@ export async function fetchVideoInfo(videoId: string): Promise<{ title: string; 
 }
 
 /** @deprecated Use fetchVideoInfo */
-export async function fetchVideoTitle(videoId: string): Promise<string> {
-  return (await fetchVideoInfo(videoId)).title;
+export async function fetchVideoTitle(videoId: string, userId: string): Promise<string> {
+  return (await fetchVideoInfo(videoId, userId)).title;
 }
 
 /** Fetch transcript segments. Returns null if unavailable. */

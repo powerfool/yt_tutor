@@ -28,12 +28,14 @@ export default function LoginPage() {
 
         {/* Card */}
         <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-800 p-8">
-          <h1 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-0.5">
-            Welcome
+          <h1 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-2">
+            Your learning workspace.
           </h1>
-          <p className="text-sm text-gray-400 dark:text-gray-500 mb-6">
-            Sign in to start learning
-          </p>
+          <ul className="text-sm text-gray-500 dark:text-gray-500 mb-6 space-y-1">
+            <li>• Chat with Claude about what you&apos;re watching.</li>
+            <li>• Build a notebook as you go.</li>
+            <li>• Everything saves automatically.</li>
+          </ul>
 
           <button
             onClick={handleGoogleSignIn}
@@ -51,6 +53,10 @@ export default function LoginPage() {
             {loading ? "Signing in…" : "Sign in with Google"}
           </button>
         </div>
+
+        <p className="text-center text-xs text-gray-400 dark:text-gray-600 mt-5">
+          No account needed — just sign in.
+        </p>
       </div>
     </div>
   );

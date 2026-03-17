@@ -2,7 +2,7 @@
 
 **YT Tutor** turns passive YouTube watching into active learning. Paste a URL, and alongside the video you get an AI research partner and a personal notebook — all in one window, all saved automatically.
 
-Built for solo use — self-hosted, single user, runs on a VPS. API keys and AI prompts are configurable from the UI — no code changes needed after first deploy.
+Multi-user, self-hosted, runs on a VPS. Sign in with Google. Each user brings their own API keys and can tune AI prompts — all from the UI, no code changes needed after deploy.
 
 ![Screenshot](/screenshot.png "Screenshot")
 
@@ -67,8 +67,8 @@ A gear icon in the tab bar opens the settings page. Add your Anthropic and YouTu
 | | |
 |---|---|
 | Framework | Next.js (App Router, TypeScript, Tailwind CSS v4) |
-| Database | SQLite via Prisma |
-| Auth | NextAuth v5 (credentials, single user) |
+| Database | PostgreSQL via Prisma (Neon) |
+| Auth | NextAuth v5 (Google OAuth, database sessions) |
 | AI | Anthropic Claude API (streaming, prompt caching) |
 | Video | YouTube IFrame Player API + Data API v3 |
 | Transcripts | Direct YouTube caption fetch + yt-dlp fallback |
@@ -78,44 +78,41 @@ A gear icon in the tab bar opens the settings page. Add your Anthropic and YouTu
 
 ## Getting Started
 
-**Prerequisites:** Node.js 18+, [yt-dlp](https://github.com/yt-dlp/yt-dlp), an [Anthropic API key](https://console.anthropic.com/), and a [YouTube Data API v3 key](https://console.cloud.google.com/).
+**Prerequisites:** Node.js 18+, [yt-dlp](https://github.com/yt-dlp/yt-dlp), a [Neon](https://neon.tech) Postgres database, and a [Google OAuth client](https://console.cloud.google.com/).
 
 ```bash
 git clone https://github.com/powerfool/yt_tutor.git
 cd yt_tutor
 npm install
-npx prisma generate
 ```
 
 Copy `.env.example` to `.env` and fill in:
 
 ```env
-DATABASE_URL="file:./prisma/dev.db"
+DATABASE_URL="postgresql://..."   # Neon connection string
 
 # NextAuth — generate with: openssl rand -base64 32
 AUTH_SECRET="your-random-secret"
 AUTH_URL="http://localhost:3000"
 
-ADMIN_USERNAME="your-username"
+# Google OAuth (console.cloud.google.com → Credentials → OAuth 2.0 Client ID)
+# Dev redirect URI: http://localhost:3000/api/auth/callback/google
+AUTH_GOOGLE_ID="....apps.googleusercontent.com"
+AUTH_GOOGLE_SECRET="GOCSPX-..."
 
-# Generate: node -e "const b = require('bcryptjs'); b.hash('your-password', 10).then(console.log)"
-# Escape every $ as \$ in this file
-ADMIN_PASSWORD_HASH=\$2b\$10\$...
-
+# Optional server-level fallback keys (users can override in Settings)
 ANTHROPIC_API_KEY="sk-ant-..."
 YOUTUBE_API_KEY="AIza..."
 ```
 
-> **Note:** Every `$` in the bcrypt hash must be escaped as `\$` — Next.js will silently corrupt it otherwise.
-
 Then:
 
 ```bash
-npx prisma migrate dev
+npx prisma migrate deploy
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) and sign in. API keys can also be updated any time from the Settings page in the UI.
+Open [http://localhost:3000](http://localhost:3000) and sign in with Google. API keys can be added any time from the Settings page in the UI.
 
 ---
 
@@ -151,7 +148,22 @@ Make sure `.env` is populated on the server and `AUTH_URL` points to your public
 
 ## Known Limitations
 
-- **Single user only** — no multi-user or role support
 - **Transcripts require captions** — videos without captions will show "unavailable" in the transcript tab
 - **Transcript fetching is best-effort** — the primary path scrapes `ytInitialPlayerResponse` from YouTube's page HTML; if YouTube changes that format it may break. The yt-dlp fallback is more resilient but adds a few seconds of latency
 - **No export integrations** — copy-paste is the only way to get content out of the notebook for now
+
+---
+
+## Wishlist / Backlog
+
+Features and improvements to address in future iterations:
+
+- **Browser extension** — injected sidebar on YouTube pages (works on Chrome and Firefox); auth handoff from Google OAuth; same chat + notebook UI in a narrow layout calling the hosted API
+- **Encrypt API keys at rest** — application-level AES-256-GCM encryption for stored Anthropic/YouTube keys in the database, since users are trusting the app with keys that have billing implications
+- **Rate limiting on AI endpoints** — per-user request limits on `/api/chat`, `/api/chat/suggest`, and `/api/chat/chapters` to protect the server-level fallback API key
+- **Server-side chat history** — fetch conversation history from the DB in the chat route instead of trusting the client-supplied `history` array
+- **Notebook export** — export to Markdown or PDF directly from the notebook toolbar
+- **Video search within a project** — search across the watch history and transcripts of all videos in a project
+- **Playlist / batch import** — paste a YouTube playlist URL to create a project pre-loaded with all videos
+- **Next.js middleware auth guard** — single edge-level auth check covering all `/api/*` and `/project/*` routes, as a defence-in-depth complement to per-route checks
+- **Validate `videoId` server-side** — enforce the 11-char YouTube ID format (`/^[a-zA-Z0-9_-]{11}$/`) before passing to fetch or yt-dlp

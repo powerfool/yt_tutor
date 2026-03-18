@@ -9,13 +9,24 @@ const ALLOWED_KEYS = [
   ...Object.keys(PROMPT_DEFAULTS),
 ];
 
+function maskKeys(row: Record<string, unknown>) {
+  return {
+    ...row,
+    anthropicApiKey: row.anthropicApiKey ? "set" : null,
+    youtubeApiKey: row.youtubeApiKey ? "set" : null,
+  };
+}
+
 export async function GET() {
   const session = await auth();
   if (!session) return new NextResponse(null, { status: 401 });
   const settings = await prisma.settings.findUnique({
     where: { id: "singleton" },
   });
-  return NextResponse.json(settings ?? {});
+  return NextResponse.json({
+    ...maskKeys((settings ?? {}) as Record<string, unknown>),
+    hasServerFallback: !!process.env.ANTHROPIC_API_KEY,
+  });
 }
 
 export async function PATCH(req: NextRequest) {
@@ -32,5 +43,5 @@ export async function PATCH(req: NextRequest) {
     create: { id: "singleton", ...data },
   });
   invalidateSettingsCache();
-  return NextResponse.json(settings);
+  return NextResponse.json(maskKeys(settings as unknown as Record<string, unknown>));
 }

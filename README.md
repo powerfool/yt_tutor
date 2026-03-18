@@ -78,11 +78,12 @@ A gear icon in the tab bar opens the settings page. Add your Anthropic and YouTu
 
 ## Getting Started
 
-**Prerequisites:** Node.js 18+, [yt-dlp](https://github.com/yt-dlp/yt-dlp), an [Anthropic API key](https://console.anthropic.com/), and a [YouTube Data API v3 key](https://console.cloud.google.com/).
+**Prerequisites:** Node.js 18+, [yt-dlp](https://github.com/yt-dlp/yt-dlp).
 
 ```bash
 git clone https://github.com/powerfool/yt_tutor.git
 cd yt_tutor
+git checkout feat/single-user
 npm install
 npx prisma generate
 ```
@@ -102,11 +103,14 @@ ADMIN_USERNAME="your-username"
 # Escape every $ as \$ in this file
 ADMIN_PASSWORD_HASH=\$2b\$10\$...
 
+# Optional — can be added later via Settings in the UI
 ANTHROPIC_API_KEY="sk-ant-..."
 YOUTUBE_API_KEY="AIza..."
 ```
 
 > **Note:** Every `$` in the bcrypt hash must be escaped as `\$` — Next.js will silently corrupt it otherwise.
+
+`ANTHROPIC_API_KEY` is required to use AI chat, but you can leave it out of `.env` and add it later via the Settings page in the UI. Without it, the chat panel shows a banner with a link to Settings. `YOUTUBE_API_KEY` is optional — without it, video titles fall back to what the YouTube IFrame player reports.
 
 Then:
 
@@ -115,7 +119,22 @@ npx prisma migrate dev
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) and sign in. API keys can also be updated any time from the Settings page in the UI.
+Open [http://localhost:3000](http://localhost:3000) and sign in with the `ADMIN_USERNAME` / password you configured.
+
+---
+
+## Testing the API Key Notification Flow
+
+This branch adds a banner in the chat panel that appears when no Anthropic API key is configured (either in `.env` or via Settings).
+
+**To test:**
+
+1. Start the app without `ANTHROPIC_API_KEY` in `.env` and without a key saved in Settings.
+2. Open any video — the chat panel should show an amber banner: *"Add your Anthropic API key in Settings to use chat."*
+3. The chat input and Send button are disabled while the banner is visible.
+4. Click the Settings link in the banner → add your Anthropic key → save.
+5. Return to the chat panel — the banner should be gone and chat should work normally.
+6. **Reactive path:** If the key is removed from Settings mid-session, the next chat message (or suggestion refresh) returns a 402 and the banner reappears automatically.
 
 ---
 

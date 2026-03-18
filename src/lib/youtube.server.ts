@@ -178,6 +178,7 @@ async function fetchTranscriptYtDlp(
 
   try {
     await execFileAsync("yt-dlp", [
+      "--js-runtimes", "node",
       "--write-subs",
       "--write-auto-subs",
       "--sub-lang", "en",

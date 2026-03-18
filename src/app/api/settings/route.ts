@@ -24,7 +24,10 @@ export async function GET() {
   const settings = await prisma.userSettings.findUnique({
     where: { userId: session.user.id },
   });
-  return NextResponse.json(maskKeys((settings ?? {}) as Record<string, unknown>));
+  return NextResponse.json({
+    ...maskKeys((settings ?? {}) as Record<string, unknown>),
+    hasServerFallback: !!process.env.ANTHROPIC_API_KEY,
+  });
 }
 
 export async function PATCH(req: NextRequest) {

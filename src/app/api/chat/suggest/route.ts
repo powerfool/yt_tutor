@@ -30,6 +30,7 @@ export async function POST(req: NextRequest) {
   const userId = session.user.id;
 
   const apiKey = await getAnthropicApiKey(userId);
+  if (!apiKey) return new NextResponse(null, { status: 402 });
   const client = new Anthropic({ apiKey });
   const systemPrompt = await getPrompt(userId, "chatSystemPrompt");
   const templates = {

@@ -27,6 +27,9 @@ export async function POST(req: NextRequest) {
   const userId = session.user.id;
 
   const apiKey = await getAnthropicApiKey(userId);
+  if (!apiKey) {
+    return NextResponse.json({ error: "no_api_key" }, { status: 402 });
+  }
   const client = new Anthropic({ apiKey });
   const systemPrompt = await getPrompt(userId, "chatSystemPrompt");
   const videoOnlyPrompt = await getPrompt(userId, "chatVideoOnlyPrompt");

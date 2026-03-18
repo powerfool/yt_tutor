@@ -34,6 +34,7 @@ export default function ChatPanel({ projectId, videoId, videoTitle, transcript, 
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [videoOnly, setVideoOnly] = useState(true);
+  const [showKeyBanner, setShowKeyBanner] = useState(false);
   const [streaming, setStreaming] = useState(false);
   const [selectionPopup, setSelectionPopup] = useState<SelectionPopup | null>(null);
   const [chatStarted, setChatStarted] = useState(false);
@@ -53,6 +54,13 @@ export default function ChatPanel({ projectId, videoId, videoTitle, transcript, 
         setMessages(msgs);
         allMessagesRef.current = msgs;
         setMessagesLoaded(true);
+      });
+    fetch("/api/settings")
+      .then((r) => r.json())
+      .then((s) => {
+        if (!s.hasServerFallback && s.anthropicApiKey !== "set") {
+          setShowKeyBanner(true);
+        }
       });
   }, [projectId]);
 
@@ -225,7 +233,7 @@ export default function ChatPanel({ projectId, videoId, videoTitle, transcript, 
   }
 
   async function sendMessage() {
-    if (!input.trim() || streaming) return;
+    if (!input.trim() || streaming || showKeyBanner) return;
 
     const userText = input.trim();
     setInput("");
@@ -265,10 +273,17 @@ export default function ChatPanel({ projectId, videoId, videoTitle, transcript, 
     });
 
     if (!res.ok) {
-      const { error } = await res.json().catch(() => ({ error: "Unexpected error from AI." }));
+      const data = await res.json().catch(() => ({ error: "Unexpected error from AI." }));
+      if (data.error === "no_api_key") {
+        setShowKeyBanner(true);
+      }
+      const displayError =
+        data.error === "no_api_key"
+          ? "Add your Anthropic API key in Settings to use chat."
+          : data.error;
       setMessages((prev) =>
         prev.map((m) =>
-          m.id === streamId ? { ...m, role: "system" as const, content: `⚠️ ${error}` } : m
+          m.id === streamId ? { ...m, role: "system" as const, content: `⚠️ ${displayError}` } : m
         )
       );
       setStreaming(false);
@@ -339,6 +354,31 @@ export default function ChatPanel({ projectId, videoId, videoTitle, transcript, 
         </div>
       </div>
 
+      {/* API key banner */}
+      {showKeyBanner && (
+        <div className="mx-3 mt-2 flex items-start gap-2.5 rounded-lg border border-amber-200 dark:border-amber-900/60 bg-amber-50 dark:bg-amber-950/30 px-3.5 py-2.5 text-xs shrink-0">
+          <svg className="shrink-0 mt-0.5 text-amber-500" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+            <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+          </svg>
+          <span className="flex-1 text-amber-800 dark:text-amber-200 leading-relaxed">
+            Chat requires an Anthropic API key.{" "}
+            <a href="/settings" className="underline underline-offset-2 hover:text-amber-900 dark:hover:text-amber-100 transition-colors">
+              Add it in Settings
+            </a>
+            .
+          </span>
+          <button
+            onClick={() => setShowKeyBanner(false)}
+            className="shrink-0 text-amber-400 hover:text-amber-600 dark:hover:text-amber-300 transition-colors mt-0.5"
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+        </div>
+      )}
+
       {/* Selection popup */}
       {selectionPopup && (
         <div
@@ -389,9 +429,15 @@ export default function ChatPanel({ projectId, videoId, videoTitle, transcript, 
           <div key={msg.id}>
             {msg.role === "system" ? (
               <div className="flex justify-center">
-                <span className="text-[11px] text-gray-400 dark:text-gray-500 bg-gray-100 dark:bg-gray-800/80 px-3 py-1 rounded-full font-mono">
-                  {msg.content}
-                </span>
+                {msg.content.startsWith("⚠️") ? (
+                  <span className="text-[11px] text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800/50 px-3 py-1 rounded-full">
+                    {msg.content}
+                  </span>
+                ) : (
+                  <span className="text-[11px] text-gray-400 dark:text-gray-500 bg-gray-100 dark:bg-gray-800/80 px-3 py-1 rounded-full font-mono">
+                    {msg.content}
+                  </span>
+                )}
               </div>
             ) : (
               <div className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
@@ -470,7 +516,7 @@ export default function ChatPanel({ projectId, videoId, videoTitle, transcript, 
         ) : !chatStarted && videoId ? (
           <button
             onClick={startConversation}
-            disabled={loadingSuggestions}
+            disabled={loadingSuggestions || showKeyBanner}
             className="w-full py-2.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-60 text-white rounded-xl text-sm font-medium transition-colors"
           >
             {loadingSuggestions ? "Loading suggestions…" : "Start conversation"}
@@ -487,13 +533,14 @@ export default function ChatPanel({ projectId, videoId, videoTitle, transcript, 
                   sendMessage();
                 }
               }}
-              placeholder="Ask anything… (Enter to send, Shift+Enter for new line)"
+              placeholder={showKeyBanner ? "Add your API key in Settings to chat" : "Ask anything… (Enter to send, Shift+Enter for new line)"}
+              disabled={showKeyBanner}
               rows={2}
-              className="flex-1 px-3.5 py-2.5 text-sm rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500/60 transition-colors"
+              className="flex-1 px-3.5 py-2.5 text-sm rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500/60 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             />
             <button
               onClick={sendMessage}
-              disabled={streaming || !input.trim()}
+              disabled={streaming || !input.trim() || showKeyBanner}
               className="px-4 py-2.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-xl text-sm font-medium transition-colors shrink-0"
             >
               Send

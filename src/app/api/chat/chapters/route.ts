@@ -16,7 +16,7 @@ export async function POST(req: NextRequest) {
   if (!session) return new NextResponse(null, { status: 401 });
 
   const apiKey = await getAnthropicApiKey();
-  if (!apiKey) return new NextResponse(null, { status: 402 });
+  if (!apiKey) return NextResponse.json({ error: "no_api_key" }, { status: 402 });
   const client = new Anthropic({ apiKey });
   const chaptersSystemPrompt = await getPrompt("chaptersSystemPrompt");
   const chaptersUserPrompt = await getPrompt("chaptersUserPrompt");

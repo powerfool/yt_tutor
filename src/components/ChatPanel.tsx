@@ -35,6 +35,7 @@ export default function ChatPanel({ projectId, videoId, videoTitle, transcript, 
   const [input, setInput] = useState("");
   const [videoOnly, setVideoOnly] = useState(true);
   const [showKeyBanner, setShowKeyBanner] = useState(false);
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [streaming, setStreaming] = useState(false);
   const [selectionPopup, setSelectionPopup] = useState<SelectionPopup | null>(null);
   const [chatStarted, setChatStarted] = useState(false);
@@ -61,6 +62,7 @@ export default function ChatPanel({ projectId, videoId, videoTitle, transcript, 
         if (!s.hasServerFallback && s.anthropicApiKey !== "set") {
           setShowKeyBanner(true);
         }
+        setSettingsLoaded(true);
       });
   }, [projectId]);
 
@@ -195,6 +197,10 @@ export default function ChatPanel({ projectId, videoId, videoTitle, transcript, 
           currentChapter: getCurrentChapter(),
         }),
       });
+      if (res.status === 402) {
+        setShowKeyBanner(true);
+        return;
+      }
       if (res.ok) {
         const { suggestions: s } = await res.json();
         setSuggestions(s);
@@ -212,6 +218,10 @@ export default function ChatPanel({ projectId, videoId, videoTitle, transcript, 
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ transcript, videoTitle }),
       });
+      if (res.status === 402) {
+        setShowKeyBanner(true);
+        return;
+      }
       if (res.ok) {
         const { chapters } = await res.json();
         if (Array.isArray(chapters) && chapters.length > 0) {
@@ -224,6 +234,7 @@ export default function ChatPanel({ projectId, videoId, videoTitle, transcript, 
   }
 
   async function startConversation() {
+    if (showKeyBanner) return;
     setChatStarted(true);
     const tasks: Promise<void>[] = [fetchSuggestions()];
     // Only generate chapters if none are already loaded (e.g. from saved watch history)
@@ -234,7 +245,7 @@ export default function ChatPanel({ projectId, videoId, videoTitle, transcript, 
   }
 
   async function sendMessage() {
-    if (!input.trim() || streaming || showKeyBanner) return;
+    if (!input.trim() || streaming || showKeyBanner || !settingsLoaded) return;
 
     const userText = input.trim();
     setInput("");
@@ -518,7 +529,7 @@ export default function ChatPanel({ projectId, videoId, videoTitle, transcript, 
         ) : !chatStarted && videoId ? (
           <button
             onClick={startConversation}
-            disabled={loadingSuggestions || showKeyBanner}
+            disabled={loadingSuggestions || showKeyBanner || !settingsLoaded}
             className="w-full py-2.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-60 text-white rounded-xl text-sm font-medium transition-colors"
           >
             {loadingSuggestions ? "Loading suggestions…" : "Start conversation"}
@@ -536,13 +547,13 @@ export default function ChatPanel({ projectId, videoId, videoTitle, transcript, 
                 }
               }}
               placeholder={showKeyBanner ? "Add your API key in Settings to chat" : "Ask anything… (Enter to send, Shift+Enter for new line)"}
-              disabled={showKeyBanner}
+              disabled={showKeyBanner || !settingsLoaded}
               rows={2}
               className="flex-1 px-3.5 py-2.5 text-sm rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500/60 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             />
             <button
               onClick={sendMessage}
-              disabled={streaming || !input.trim() || showKeyBanner}
+              disabled={streaming || !input.trim() || showKeyBanner || !settingsLoaded}
               className="px-4 py-2.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-xl text-sm font-medium transition-colors shrink-0"
             >
               Send

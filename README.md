@@ -2,7 +2,7 @@
 
 **YT Tutor** turns passive YouTube watching into active learning. Paste a URL, and alongside the video you get an AI research partner and a personal notebook — all in one window, all saved automatically.
 
-Built for solo use — self-hosted, single user, runs on a VPS. API keys and AI prompts are configurable from the UI — no code changes needed after first deploy.
+Built for solo use — single user, runs locally. API keys and AI prompts are configurable from the UI — no code changes needed after first setup.
 
 ![Screenshot](/screenshot.png "Screenshot")
 
@@ -29,6 +29,7 @@ When you open a video, Claude suggests four questions to get you started. As the
 **Quote in chat** — highlight any part of a response, hit "Quote in chat", and that text drops into your input as a blockquote. Ask a follow-up without retyping anything.
 
 <img src="/1-chat.jpg" alt="Ask Claude" width="500" />
+
 ---
 
 ### Build a notebook
@@ -49,7 +50,7 @@ Projects work like browser tabs for your research. Each one has its own video hi
 
 ### Settings
 
-A gear icon in the tab bar opens the settings page. Add your Anthropic and YouTube API keys directly in the UI — no config file edits needed after the first deploy. You can also override any of the AI prompts if you want to tune how Claude behaves.
+A gear icon in the tab bar opens the settings page. Add your Anthropic and YouTube API keys directly in the UI — no config file edits needed after the first setup. You can also override any of the AI prompts if you want to tune how Claude behaves.
 
 ---
 
@@ -83,7 +84,6 @@ A gear icon in the tab bar opens the settings page. Add your Anthropic and YouTu
 ```bash
 git clone https://github.com/powerfool/yt_tutor.git
 cd yt_tutor
-git checkout feat/single-user
 npm install
 npx prisma generate
 ```
@@ -123,54 +123,8 @@ Open [http://localhost:3000](http://localhost:3000) and sign in with the `ADMIN_
 
 ---
 
-## Testing the API Key Notification Flow
-
-This branch adds a banner in the chat panel that appears when no Anthropic API key is configured (either in `.env` or via Settings).
-
-**To test:**
-
-1. Start the app without `ANTHROPIC_API_KEY` in `.env` and without a key saved in Settings.
-2. Open any video — the chat panel should show an amber banner: *"Add your Anthropic API key in Settings to use chat."*
-3. The chat input and Send button are disabled while the banner is visible.
-4. Click the Settings link in the banner → add your Anthropic key → save.
-5. Return to the chat panel — the banner should be gone and chat should work normally.
-6. **Reactive path:** If the key is removed from Settings mid-session, the next chat message (or suggestion refresh) returns a 402 and the banner reappears automatically.
-
----
-
-## Deployment (VPS with PM2)
-
-```bash
-# First-time setup on the server
-npm ci
-npx prisma migrate deploy
-npm run build
-pm2 start ecosystem.config.js
-pm2 save
-
-# Subsequent deploys
-npm ci
-npx prisma migrate deploy
-npm run build
-pm2 restart yt-tutor
-
-# View logs
-pm2 logs yt-tutor
-```
-
-Make sure `.env` is populated on the server and `AUTH_URL` points to your public domain (e.g. `https://yourdomain.com`).
-
-## Security
-
-- All API routes require a valid session — unauthenticated requests return 401
-- API keys are server-side only, never sent to the browser
-- All YouTube and Claude calls are proxied through Next.js API routes
-
----
-
 ## Known Limitations
 
-- **Single user only** — no multi-user or role support
 - **Transcripts require captions** — videos without captions will show "unavailable" in the transcript tab
 - **Transcript fetching is best-effort** — the primary path scrapes `ytInitialPlayerResponse` from YouTube's page HTML; if YouTube changes that format it may break. The yt-dlp fallback is more resilient but adds a few seconds of latency
 - **No export integrations** — copy-paste is the only way to get content out of the notebook for now

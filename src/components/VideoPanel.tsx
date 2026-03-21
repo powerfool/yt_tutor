@@ -79,32 +79,56 @@ export default function VideoPanel({ projectId, initialVideoId, onVideoLoadStart
   }, []);
 
   useEffect(() => {
+    console.log("[YT] init effect — initialVideoId:", initialVideoId);
     if (!initialVideoId) return;
     const saved = localStorage.getItem(tsKey(projectId, initialVideoId));
     pendingSeekRef.current = saved ? parseFloat(saved) : 0;
     shouldAutoplayRef.current = false;
+    console.log("[YT] init — pendingSeek:", pendingSeekRef.current);
     loadVideoById(initialVideoId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
+    console.log("[YT] effect — videoId:", videoId, "YT.loaded:", window.YT?.loaded, "container:", !!playerContainerRef.current);
     if (!videoId || !playerContainerRef.current) return;
 
     const createPlayer = () => {
-      if (ytPlayerRef.current) ytPlayerRef.current.destroy();
-      const player = new window.YT.Player(playerContainerRef.current!, {
+      console.log("[YT] createPlayer — existing:", !!ytPlayerRef.current, "container in DOM:", document.body.contains(playerContainerRef.current));
+      if (ytPlayerRef.current) {
+        ytPlayerRef.current.destroy();
+        ytPlayerRef.current = null;
+        playerRef.current = null;
+      }
+      if (!playerContainerRef.current) {
+        console.warn("[YT] createPlayer aborted — container gone");
+        return;
+      }
+      playerContainerRef.current.innerHTML = "";
+      const el = document.createElement("div");
+      el.className = "w-full h-full";
+      playerContainerRef.current.appendChild(el);
+      console.log("[YT] new YT.Player on fresh el");
+      const player = new window.YT.Player(el, {
         videoId,
         playerVars: { autoplay: shouldAutoplayRef.current ? 1 : 0, rel: 0, modestbranding: 1 },
         events: {
           onReady: (e) => {
+            console.log("[YT] onReady — pendingSeek:", pendingSeekRef.current);
             ytPlayerRef.current = e.target;
             playerRef.current = e.target;
             if (pendingSeekRef.current !== null && pendingSeekRef.current > 0) {
-              e.target.seekTo(pendingSeekRef.current, true);
-              e.target.pauseVideo();
+              // cueVideoById positions the player at the saved timestamp in state 5
+              // (video cued / paused-ready) without triggering the seekTo+pauseVideo
+              // abort cycle that causes state -1 → 3 → -1 (black screen).
+              e.target.cueVideoById({ videoId, startSeconds: pendingSeekRef.current });
             }
             pendingSeekRef.current = null;
             startTimestampSave(videoId);
+          },
+          onStateChange: (e) => {
+            // -1=unstarted, 0=ended, 1=playing, 2=paused, 3=buffering, 5=cued
+            console.log("[YT] state:", e.data);
           },
         },
       });
@@ -113,12 +137,15 @@ export default function VideoPanel({ projectId, initialVideoId, onVideoLoadStart
     };
 
     if (window.YT?.loaded) {
+      console.log("[YT] API ready — calling createPlayer");
       createPlayer();
     } else {
+      console.log("[YT] API not ready — queuing onYouTubeIframeAPIReady");
       window.onYouTubeIframeAPIReady = createPlayer;
     }
 
     return () => {
+      console.log("[YT] cleanup — destroying:", !!ytPlayerRef.current);
       if (ytPlayerRef.current) {
         ytPlayerRef.current.destroy();
         ytPlayerRef.current = null;
@@ -175,6 +202,7 @@ export default function VideoPanel({ projectId, initialVideoId, onVideoLoadStart
   }
 
   async function loadVideoById(id: string) {
+    console.log("[load] loadVideoById:", id);
     onVideoLoadStart();
     setError("");
     setLoading(true);
@@ -184,6 +212,7 @@ export default function VideoPanel({ projectId, initialVideoId, onVideoLoadStart
       // Check DB cache first
       const cacheRes = await fetch(`/api/projects/${projectId}/watch-history?videoId=${id}`);
       const cached = cacheRes.ok ? await cacheRes.json() : null;
+      console.log("[load] cache hit:", !!cached, "hasTranscript:", !!cached?.transcriptJson, "hasTitle:", !!cached?.videoTitle);
 
       const savedTranscript: TranscriptSegment[] | null =
         cached?.transcriptJson ? JSON.parse(cached.transcriptJson) : null;
@@ -195,15 +224,31 @@ export default function VideoPanel({ projectId, initialVideoId, onVideoLoadStart
       let chaptersToUse: Chapter[] | null = savedChapters;
 
       if (savedTranscript && cached?.videoTitle) {
+        console.log("[load] using cached transcript, title:", cached.videoTitle);
         // Fully cached — no YouTube API call needed
         title = cached.videoTitle;
         transcript = savedTranscript;
+        // Still update watchedAt
+        fetch(`/api/projects/${projectId}/watch-history`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ videoId: id, videoTitle: title }),
+        });
       } else {
+        console.log("[load] no cache — fetching from YouTube");
         // Fetch from YouTube
         const res = await fetch(`/api/youtube/${id}`);
         const data = await res.json();
         title = data.title;
         transcript = data.transcript;
+        console.log("[load] YouTube fetch done, title:", title, "transcript segments:", transcript?.length ?? 0);
+
+        // Create/update the entry first so subsequent PATCHes have a row to update
+        await fetch(`/api/projects/${projectId}/watch-history`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ videoId: id, videoTitle: title }),
+        });
 
         // Persist transcript
         if (transcript) {
@@ -225,12 +270,8 @@ export default function VideoPanel({ projectId, initialVideoId, onVideoLoadStart
         }
       }
 
-      // Update watchedAt (and create entry if first time)
-      fetch(`/api/projects/${projectId}/watch-history`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ videoId: id, videoTitle: title }),
-      });
+
+      // Update currentVideoId on the project
 
       fetch(`/api/projects/${projectId}`, {
         method: "PATCH",
@@ -238,6 +279,7 @@ export default function VideoPanel({ projectId, initialVideoId, onVideoLoadStart
         body: JSON.stringify({ currentVideoId: id }),
       });
 
+      console.log("[load] calling onVideoLoad — id:", id, "title:", title, "transcript:", transcript?.length ?? 0, "chapters:", chaptersToUse?.length ?? 0);
       onVideoLoad(id, title, transcript, chaptersToUse);
 
       if (historyLoaded) fetchHistory();

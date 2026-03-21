@@ -2,7 +2,7 @@
 
 **YT Tutor** turns passive YouTube watching into active learning. Paste a URL, and alongside the video you get an AI research partner and a personal notebook — all in one window, all saved automatically.
 
-Built for solo use — single user, runs locally. API keys and AI prompts are configurable from the UI — no code changes needed after first setup.
+Built for solo use — single user, self-hosted. API keys and AI prompts are configurable from the UI — no code changes needed after first setup.
 
 ![Screenshot](/screenshot.png "Screenshot")
 
@@ -69,7 +69,7 @@ A gear icon in the tab bar opens the settings page. Add your Anthropic and YouTu
 |---|---|
 | Framework | Next.js (App Router, TypeScript, Tailwind CSS v4) |
 | Database | SQLite via Prisma |
-| Auth | NextAuth v5 (credentials, single user) |
+| Auth | NextAuth v5 (credentials, bcrypt) |
 | AI | Anthropic Claude API (streaming, prompt caching) |
 | Video | YouTube IFrame Player API + Data API v3 |
 | Transcripts | Direct YouTube caption fetch + yt-dlp fallback |
@@ -85,7 +85,6 @@ A gear icon in the tab bar opens the settings page. Add your Anthropic and YouTu
 git clone https://github.com/powerfool/yt_tutor.git
 cd yt_tutor
 npm install
-npx prisma generate
 ```
 
 Copy `.env.example` to `.env` and fill in:
@@ -98,28 +97,51 @@ AUTH_SECRET="your-random-secret"
 AUTH_URL="http://localhost:3000"
 
 ADMIN_USERNAME="your-username"
-
-# Generate: node -e "const b = require('bcryptjs'); b.hash('your-password', 10).then(console.log)"
-# Escape every $ as \$ in this file
-ADMIN_PASSWORD_HASH=\$2b\$10\$...
+ADMIN_PASSWORD_HASH='bcrypt-hash-of-your-password'  # use single quotes — $ in bcrypt hashes break double-quoted vars
 
 # Optional — can be added later via Settings in the UI
 ANTHROPIC_API_KEY="sk-ant-..."
 YOUTUBE_API_KEY="AIza..."
 ```
 
-> **Note:** Every `$` in the bcrypt hash must be escaped as `\$` — Next.js will silently corrupt it otherwise.
-
-`ANTHROPIC_API_KEY` is required to use AI chat, but you can leave it out of `.env` and add it later via the Settings page in the UI. Without it, the chat panel shows a banner with a link to Settings. `YOUTUBE_API_KEY` is optional — without it, video titles fall back to what the YouTube IFrame player reports.
-
 Then:
 
 ```bash
-npx prisma migrate dev
+npx prisma migrate deploy
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) and sign in with the `ADMIN_USERNAME` / password you configured.
+Open [http://localhost:3000](http://localhost:3000) and sign in with the `ADMIN_USERNAME` / password you configured. API keys can be added any time from the Settings page in the UI.
+
+---
+
+## Deployment (VPS with PM2)
+
+```bash
+# First-time setup on the server
+npm ci
+npx prisma migrate deploy
+npm run build
+pm2 start ecosystem.config.js
+pm2 save
+
+# Subsequent deploys
+npm ci
+npx prisma migrate deploy
+npm run build
+pm2 restart yt-tutor
+
+# View logs
+pm2 logs yt-tutor
+```
+
+Make sure `.env` is populated on the server and `AUTH_URL` points to your public domain (e.g. `https://yourdomain.com`). Use single quotes for `ADMIN_PASSWORD_HASH` to prevent shell interpretation of `$` characters.
+
+## Security
+
+- All API routes require a valid session — unauthenticated requests return 401
+- API keys are server-side only, never sent to the browser
+- All YouTube and Claude calls are proxied through Next.js API routes
 
 ---
 
@@ -128,3 +150,19 @@ Open [http://localhost:3000](http://localhost:3000) and sign in with the `ADMIN_
 - **Transcripts require captions** — videos without captions will show "unavailable" in the transcript tab
 - **Transcript fetching is best-effort** — the primary path scrapes `ytInitialPlayerResponse` from YouTube's page HTML; if YouTube changes that format it may break. The yt-dlp fallback is more resilient but adds a few seconds of latency
 - **No export integrations** — copy-paste is the only way to get content out of the notebook for now
+
+---
+
+## Wishlist / Backlog
+
+Features and improvements to address in future iterations:
+
+- **Browser extension** — injected sidebar on YouTube pages (works on Chrome and Firefox); same chat + notebook UI in a narrow layout calling the hosted API
+- **Encrypt API keys at rest** — application-level AES-256-GCM encryption for stored Anthropic/YouTube keys in the database, since users are trusting the app with keys that have billing implications
+- **Rate limiting on AI endpoints** — per-user request limits on `/api/chat`, `/api/chat/suggest`, and `/api/chat/chapters` to protect the server-level fallback API key
+- **Server-side chat history** — fetch conversation history from the DB in the chat route instead of trusting the client-supplied `history` array
+- **Notebook export** — export to Markdown or PDF directly from the notebook toolbar
+- **Video search within a project** — search across the watch history and transcripts of all videos in a project
+- **Playlist / batch import** — paste a YouTube playlist URL to create a project pre-loaded with all videos
+- **Next.js middleware auth guard** — single edge-level auth check covering all `/api/*` and `/project/*` routes, as a defence-in-depth complement to per-route checks
+- **Validate `videoId` server-side** — enforce the 11-char YouTube ID format (`/^[a-zA-Z0-9_-]{11}$/`) before passing to fetch or yt-dlp

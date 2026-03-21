@@ -1,0 +1,28 @@
+{
+  "manifest_version": 3,
+  "name": "YT Tutor",
+  "version": "1.0.0",
+  "description": "Chat with YouTube videos using AI. Take notes in a persistent notebook.",
+  "permissions": ["sidePanel", "scripting", "storage", "tabs"],
+  "host_permissions": [
+    "*://*.youtube.com/*",
+    "https://api.anthropic.com/*"
+  ],
+  "background": {
+    "service_worker": "background.ts",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["*://*.youtube.com/*"],
+      "js": ["content/youtube.ts"],
+      "run_at": "document_idle"
+    }
+  ],
+  "side_panel": {
+    "default_path": "sidebar/index.html"
+  },
+  "action": {
+    "default_title": "Open YT Tutor"
+  }
+}

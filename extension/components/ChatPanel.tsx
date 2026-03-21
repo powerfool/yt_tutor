@@ -3,8 +3,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { TranscriptSegment, Chapter } from "@/lib/youtube";
-import { YTPlayer } from "@/lib/ytplayer";
 
 type Message = {
   id: string;
@@ -18,29 +16,41 @@ type SelectionPopup = { text: string; x: number; y: number };
 type HistoryMessage = { role: "user" | "assistant"; content: string };
 
 type Props = {
-  projectId: string;
   videoId: string | null;
   videoTitle: string | null;
-  transcript: TranscriptSegment[] | null;
-  playerRef: React.MutableRefObject<YTPlayer | null>;
-  videoLoading?: boolean;
+  hasTranscript: boolean;
   onCopyToNotebook?: (text: string) => void;
   onCopyMarkdownToNotebook?: (markdown: string) => void;
-  onChaptersGenerated?: (chapters: Chapter[]) => void;
-  chapters?: Chapter[];
+  headerControls?: React.ReactNode;
 };
 
-export default function ChatPanel({ projectId, videoId, videoTitle, transcript, playerRef, videoLoading = false, onCopyToNotebook, onCopyMarkdownToNotebook, onChaptersGenerated, chapters }: Props) {
+const STORAGE_KEY = (videoId: string) => `messages_${videoId}`;
+
+function loadMessages(videoId: string): Promise<Message[]> {
+  return new Promise((resolve) => {
+    chrome.storage.local.get(STORAGE_KEY(videoId), (result) => {
+      resolve((result[STORAGE_KEY(videoId)] as Message[]) ?? []);
+    });
+  });
+}
+
+function saveMessages(videoId: string, messages: Message[]): void {
+  chrome.storage.local.set({ [STORAGE_KEY(videoId)]: messages });
+}
+
+export default function ChatPanel({
+  videoId,
+  videoTitle,
+  hasTranscript,
+  onCopyToNotebook,
+  onCopyMarkdownToNotebook,
+  headerControls,
+}: Props) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [videoOnly, setVideoOnly] = useState(true);
-
-  useEffect(() => {
-    const saved = localStorage.getItem("videoOnly");
-    if (saved !== null) setVideoOnly(saved === "true");
-  }, []);
+  const [videoOnlyLoaded, setVideoOnlyLoaded] = useState(false);
   const [showKeyBanner, setShowKeyBanner] = useState(false);
-  const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [streaming, setStreaming] = useState(false);
   const [selectionPopup, setSelectionPopup] = useState<SelectionPopup | null>(null);
   const [chatStarted, setChatStarted] = useState(false);
@@ -52,68 +62,184 @@ export default function ChatPanel({ projectId, videoId, videoTitle, transcript, 
   const messagesRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const allMessagesRef = useRef<Message[]>([]);
+  const activeStreamId = useRef<string | null>(null);
+  // Synchronous gate: set to true before async loadMessages, false when done.
+  // Prevents the pill effect from firing in the same render cycle as the load start,
+  // even when messagesLoaded is still true from the previous video.
+  const loadingMessagesRef = useRef(false);
 
+  // Load persisted videoOnly preference
   useEffect(() => {
-    fetch(`/api/projects/${projectId}/messages`)
-      .then((r) => r.json())
-      .then((msgs) => {
-        setMessages(msgs);
-        allMessagesRef.current = msgs;
-        setMessagesLoaded(true);
-      });
-    fetch("/api/settings")
-      .then((r) => r.json())
-      .then((s) => {
-        if (!s.hasServerFallback && s.anthropicApiKey !== "set") {
-          setShowKeyBanner(true);
-        }
-        setSettingsLoaded(true);
-      });
-  }, [projectId]);
+    chrome.storage.local.get("videoOnly", (result) => {
+      if (typeof result.videoOnly === "boolean") {
+        setVideoOnly(result.videoOnly);
+      }
+      setVideoOnlyLoaded(true);
+    });
+  }, []);
 
+  // Check API key on mount
   useEffect(() => {
-    if (!videoId || !messagesLoaded) return;
+    chrome.storage.local.get("anthropicApiKey", (result) => {
+      const hasKey = !!result.anthropicApiKey;
+      console.log(`[chat-panel] API key check: ${hasKey ? "present" : "missing → showing banner"}`);
+      if (!hasKey) {
+        setShowKeyBanner(true);
+      }
+    });
+  }, []);
+
+  // Load messages when videoId changes
+  useEffect(() => {
+    if (!videoId) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setMessages([]);
+      allMessagesRef.current = [];
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setMessagesLoaded(false);
+      loadingMessagesRef.current = false;
+      return;
+    }
+    console.log(`[chat-panel] videoId changed → ${videoId}, loading messages`);
+    // Set the ref synchronously — the pill effect (which runs in the same commit)
+    // checks this ref and returns early, preventing it from firing before messages load.
+    loadingMessagesRef.current = true;
+    setMessagesLoaded(false);
+    loadMessages(videoId).then((msgs) => {
+      console.log(`[chat-panel] messages loaded: ${msgs.length} msgs for ${videoId}`);
+      setMessages(msgs);
+      allMessagesRef.current = msgs;
+      loadingMessagesRef.current = false;
+      setMessagesLoaded(true);
+    });
+  }, [videoId]);
+
+  // Post or update the "Started watching" pill.
+  // Fires on genuine navigation AND when videoTitle corrects itself after a stale
+  // tab-title was used (SPA navigation lag). In both cases we want the pill to
+  // show the definitive title.
+  useEffect(() => {
+    if (!videoId || !messagesLoaded || loadingMessagesRef.current) return;
     const prevId = prevVideoIdRef.current;
-    if (videoId === prevId) return;
-    prevVideoIdRef.current = videoId;
+    const isNewVideo = videoId !== prevId;
 
-    setSuggestions(null);
+    if (isNewVideo) {
+      prevVideoIdRef.current = videoId;
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setSuggestions(null);
+      const hasConvo = allMessagesRef.current.some(
+        (m) => (m.role === "user" || m.role === "assistant") && m.videoId === videoId
+      );
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setChatStarted(hasConvo);
+    }
 
+    // Find the most-recent pill for this video (may have been loaded from storage).
     const msgs = allMessagesRef.current;
-    const hasConvo = msgs.some(
-      (m) => (m.role === "user" || m.role === "assistant") && m.videoId === videoId
+    const existingPillIdx = msgs.reduceRight(
+      (found, m, i) => (found === -1 && m.role === "system" && m.videoId === videoId ? i : found),
+      -1
     );
 
-    // Restore or reset chat state based on whether a conversation exists
-    setChatStarted(hasConvo);
+    const newContent = `Started watching: ${videoTitle ?? videoId}`;
 
-    // Post "Started watching" on genuine navigation (not page-load restore).
-    // prevId === null means this is the initial mount restoring the last video.
-    // Check for any existing system message for this video (the pill), not just
-    // user/assistant messages — the pill could exist even if the user never typed.
-    if (prevId === null) {
-      const alreadyStarted = msgs.some(
-        (m) => m.role === "system" && m.videoId === videoId
-      );
-      if (alreadyStarted) return;
+    if (existingPillIdx !== -1) {
+      // Pill already exists — update its text if the title has changed (e.g. stale
+      // tab title was later corrected by the player-response extraction).
+      if (msgs[existingPillIdx].content === newContent) return;
+      const updated = [...msgs];
+      updated[existingPillIdx] = { ...updated[existingPillIdx], content: newContent };
+      setMessages(updated);
+      allMessagesRef.current = updated;
+      saveMessages(videoId, updated);
+      return;
     }
-    const content = `Started watching: ${videoTitle ?? videoId}`;
-    fetch(`/api/projects/${projectId}/messages`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ role: "system", content, videoId }),
-    })
-      .then((r) => r.json())
-      .then((saved) => {
-        setMessages((prev) => [...prev, saved]);
-        allMessagesRef.current = [...allMessagesRef.current, saved];
-      });
-  }, [videoId, videoTitle, projectId, messagesLoaded]);
 
+    // No pill yet. Only create one on genuine navigation (not a title-only update).
+    if (!isNewVideo) return;
+
+    const pill: Message = {
+      id: crypto.randomUUID(),
+      role: "system",
+      content: newContent,
+      videoId,
+    };
+    const updated = [...msgs, pill];
+    setMessages(updated);
+    allMessagesRef.current = updated;
+    saveMessages(videoId, updated);
+  }, [videoId, videoTitle, messagesLoaded]);
+
+  // Auto-scroll
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, streaming]);
 
+  // Listen for chat chunks from background
+  useEffect(() => {
+    let firstChunkLogged = false;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const listener = (msg: any) => {
+      if (msg.type === "CHAT_CHUNK" && msg.streamId === activeStreamId.current) {
+        if (!firstChunkLogged) {
+          console.log(`[chat-panel] CHAT_CHUNK streamId=${msg.streamId} (first chunk received, streaming active)`);
+          firstChunkLogged = true;
+        }
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === activeStreamId.current
+              ? { ...m, content: m.content + msg.chunk }
+              : m
+          )
+        );
+      }
+
+      if (msg.type === "CHAT_DONE" && msg.streamId === activeStreamId.current) {
+        setStreaming(false);
+        // Persist final assistant message
+        const streamId = activeStreamId.current;
+        activeStreamId.current = null;
+        if (videoId && streamId) {
+          setMessages((prev) => {
+            const finalMsg = prev.find((m) => m.id === streamId);
+            if (finalMsg && videoId) {
+              const updated = prev;
+              console.log(`[chat-panel] CHAT_DONE streamId=${streamId} finalLen=${finalMsg.content.length} chars`);
+              saveMessages(videoId, updated);
+              allMessagesRef.current = updated;
+            }
+            return prev;
+          });
+        }
+      }
+
+      if (msg.type === "CHAT_ERROR" && msg.streamId === activeStreamId.current) {
+        const streamId = activeStreamId.current;
+        activeStreamId.current = null;
+        console.log(`[chat-panel] CHAT_ERROR streamId=${streamId} error="${msg.error}"`);
+        if (msg.error === "no_api_key") {
+          setShowKeyBanner(true);
+        }
+        const displayError =
+          msg.error === "no_api_key"
+            ? "Add your Anthropic API key in Settings to use chat."
+            : msg.error;
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === streamId
+              ? { ...m, role: "system" as const, content: `⚠️ ${displayError}` }
+              : m
+          )
+        );
+        setStreaming(false);
+      }
+    };
+
+    chrome.runtime.onMessage.addListener(listener);
+    return () => chrome.runtime.onMessage.removeListener(listener);
+  }, [videoId]);
+
+  // Selection popup
   const handleMessagesMouseUp = useCallback(() => {
     const sel = window.getSelection();
     if (!sel || sel.isCollapsed || !sel.toString().trim()) return;
@@ -130,10 +256,7 @@ export default function ChatPanel({ projectId, videoId, videoTitle, transcript, 
   useEffect(() => {
     function onMouseDown(e: MouseEvent) {
       const target = e.target as Node;
-      if (
-        target instanceof HTMLElement &&
-        target.closest("[data-copy-popup]")
-      ) return;
+      if (target instanceof HTMLElement && target.closest("[data-copy-popup]")) return;
       setSelectionPopup(null);
     }
     document.addEventListener("mousedown", onMouseDown);
@@ -166,7 +289,9 @@ export default function ChatPanel({ projectId, videoId, videoTitle, transcript, 
 
   async function clearChat() {
     if (!confirm("Clear all chat messages? This cannot be undone.")) return;
-    await fetch(`/api/projects/${projectId}/messages`, { method: "DELETE" });
+    if (videoId) {
+      await chrome.storage.local.remove(STORAGE_KEY(videoId));
+    }
     setMessages([]);
     allMessagesRef.current = [];
     prevVideoIdRef.current = null;
@@ -175,183 +300,151 @@ export default function ChatPanel({ projectId, videoId, videoTitle, transcript, 
   }
 
   function buildHistory(): HistoryMessage[] {
-    return messages
-      .filter((m) => m.role === "user" || m.role === "assistant")
-      .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
-  }
-
-  function getCurrentChapter(): Chapter | null {
-    if (!chapters || chapters.length === 0) return null;
-    const currentSec = playerRef.current?.getCurrentTime() ?? 0;
-    return chapters.reduce<Chapter>((best, ch) =>
-      ch.startTimeSec <= currentSec ? ch : best
-    , chapters[0]);
+    const uaMessages = messages.filter((m) => m.role === "user" || m.role === "assistant");
+    // Only include complete user/assistant pairs. A trailing user message without
+    // an assistant response (e.g. from a previous failed request) would cause the
+    // Anthropic API to reject the next request with a consecutive-user-messages error.
+    const result: HistoryMessage[] = [];
+    let i = 0;
+    while (i < uaMessages.length) {
+      if (
+        uaMessages[i].role === "user" &&
+        i + 1 < uaMessages.length &&
+        uaMessages[i + 1].role === "assistant"
+      ) {
+        result.push({ role: "user", content: uaMessages[i].content });
+        result.push({ role: "assistant", content: uaMessages[i + 1].content });
+        i += 2;
+      } else {
+        i++;
+      }
+    }
+    return result;
   }
 
   async function fetchSuggestions() {
     if (!chatStarted) setChatStarted(true);
     setLoadingSuggestions(true);
-    try {
-      const res = await fetch("/api/chat/suggest", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          transcript,
-          videoTitle,
-          currentTimeSec: playerRef.current?.getCurrentTime() ?? 0,
-          history: buildHistory(),
-          currentChapter: getCurrentChapter(),
-        }),
-      });
-      if (res.status === 402) {
-        setShowKeyBanner(true);
-        return;
-      }
-      if (res.ok) {
-        const { suggestions: s } = await res.json();
-        setSuggestions(s);
-      }
-    } finally {
-      setLoadingSuggestions(false);
-    }
-  }
+    const requestId = crypto.randomUUID();
+    const history = buildHistory();
+    console.log(`[chat-panel] fetchSuggestions START requestId=${requestId} history=${history.length}`);
 
-  async function fetchChapters() {
-    if (!transcript || transcript.length === 0 || !onChaptersGenerated) return;
-    try {
-      const res = await fetch("/api/chat/chapters", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ transcript, videoTitle }),
-      });
-      if (res.status === 402) {
-        setShowKeyBanner(true);
-        return;
+    let settled = false;
+
+    const listener = (msg: { type: string; requestId: string; suggestions: string[] }) => {
+      if (msg.type === "SUGGEST_RESULT" && msg.requestId === requestId) {
+        settled = true;
+        console.log(`[chat-panel] fetchSuggestions DONE ${msg.suggestions.length} suggestions received`);
+        setSuggestions(msg.suggestions);
+        setLoadingSuggestions(false);
+        chrome.runtime.onMessage.removeListener(listener);
       }
-      if (res.ok) {
-        const { chapters } = await res.json();
-        if (Array.isArray(chapters) && chapters.length > 0) {
-          onChaptersGenerated(chapters);
-        }
+    };
+    chrome.runtime.onMessage.addListener(listener);
+
+    chrome.runtime.sendMessage({
+      type: "SUGGEST",
+      payload: {
+        videoId,
+        history,
+        requestId,
+      },
+    });
+
+    // Timeout fallback
+    setTimeout(() => {
+      if (!settled) {
+        console.log(`[chat-panel] fetchSuggestions TIMEOUT requestId=${requestId}`);
       }
-    } catch {
-      // non-fatal
-    }
+      chrome.runtime.onMessage.removeListener(listener);
+      setLoadingSuggestions(false);
+    }, 15000);
   }
 
   async function startConversation() {
-    if (showKeyBanner) return;
     setChatStarted(true);
-    const tasks: Promise<void>[] = [fetchSuggestions()];
-    // Only generate chapters if none are already loaded (e.g. from saved watch history)
-    if (!chapters || chapters.length === 0) {
-      tasks.push(fetchChapters());
-    }
-    await Promise.all(tasks);
+    await fetchSuggestions();
   }
 
-  async function sendMessage() {
-    if (!input.trim() || streaming || showKeyBanner || !settingsLoaded) return;
+  function sendMessage() {
+    if (!input.trim() || streaming || showKeyBanner) return;
 
     const userText = input.trim();
     setInput("");
     setSuggestions(null);
 
-    const tempId = crypto.randomUUID();
-    setMessages((prev) => [
-      ...prev,
-      { id: tempId, role: "user", content: userText, videoId },
-    ]);
+    const userMsg: Message = {
+      id: crypto.randomUUID(),
+      role: "user",
+      content: userText,
+      videoId,
+    };
 
-    fetch(`/api/projects/${projectId}/messages`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ role: "user", content: userText, videoId }),
-    }).then((r) => r.json()).then((saved) => {
-      allMessagesRef.current = [...allMessagesRef.current, saved];
-    });
+    const streamId = crypto.randomUUID();
+    activeStreamId.current = streamId;
+    const history = buildHistory();
+    console.log(`[chat-panel] sendMessage: streamId=${streamId} msg="${userText.slice(0, 60)}${userText.length > 60 ? "…" : ""}" history=${history.length} videoOnly=${videoOnly}`);
+
+    const streamMsg: Message = {
+      id: streamId,
+      role: "assistant",
+      content: "",
+      videoId,
+    };
+
+    const withUser = [...allMessagesRef.current, userMsg];
+    const withStream = [...withUser, streamMsg];
+    setMessages(withStream);
+
+    // Save user message immediately
+    if (videoId) {
+      saveMessages(videoId, withUser);
+      allMessagesRef.current = withUser;
+    }
 
     setStreaming(true);
-    const streamId = crypto.randomUUID();
-    setMessages((prev) => [
-      ...prev,
-      { id: streamId, role: "assistant", content: "", videoId },
-    ]);
 
-    const res = await fetch("/api/chat", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
+    chrome.runtime.sendMessage({
+      type: "CHAT",
+      payload: {
         message: userText,
-        history: buildHistory(),
+        history,
         videoOnly,
-        transcript,
-        videoTitle,
-        currentTimeSec: playerRef.current?.getCurrentTime() ?? 0,
-      }),
-    });
-
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({ error: "Unexpected error from AI." }));
-      if (data.error === "no_api_key") {
-        setShowKeyBanner(true);
-      }
-      const displayError =
-        data.error === "no_api_key"
-          ? "Add your Anthropic API key in Settings to use chat."
-          : data.error;
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.id === streamId ? { ...m, role: "system" as const, content: `⚠️ ${displayError}` } : m
-        )
-      );
-      setStreaming(false);
-      return;
-    }
-
-    const reader = res.body!.getReader();
-    const decoder = new TextDecoder();
-    let fullText = "";
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      fullText += decoder.decode(value, { stream: true });
-      setMessages((prev) =>
-        prev.map((m) => (m.id === streamId ? { ...m, content: fullText } : m))
-      );
-    }
-
-    setStreaming(false);
-
-    fetch(`/api/projects/${projectId}/messages`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ role: "assistant", content: fullText, videoId }),
-    }).then((r) => r.json()).then((saved) => {
-      allMessagesRef.current = [...allMessagesRef.current, saved];
+        videoId,
+        currentTimeSec: 0,
+        streamId,
+      },
     });
   }
 
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="flex items-center px-4 h-10 border-b border-gray-200 dark:border-gray-800 shrink-0">
+      <div className="flex items-center justify-between px-4 h-10 border-b border-gray-200 dark:border-gray-800 shrink-0">
         <span className="text-[11px] font-semibold tracking-widest uppercase text-gray-500 dark:text-gray-400">Chat</span>
+        <div className="flex items-center gap-1.5">
+          {headerControls}
+        </div>
       </div>
 
       {/* API key banner */}
       {showKeyBanner && (
         <div className="mx-3 mt-2 flex items-start gap-2.5 rounded-lg border border-amber-200 dark:border-amber-900/60 bg-amber-50 dark:bg-amber-950/30 px-3.5 py-2.5 text-xs shrink-0">
           <svg className="shrink-0 mt-0.5 text-amber-500" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
-            <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+            <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+            <line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" />
           </svg>
           <span className="flex-1 text-amber-800 dark:text-amber-200 leading-relaxed">
             Chat requires an Anthropic API key.{" "}
-            <a href="/settings" className="underline underline-offset-2 hover:text-amber-900 dark:hover:text-amber-100 transition-colors">
+            <button
+              onClick={() => {
+                // Dispatch event to open settings — App.tsx listens
+                window.dispatchEvent(new CustomEvent("open-settings"));
+              }}
+              className="underline underline-offset-2 hover:text-amber-900 dark:hover:text-amber-100 transition-colors"
+            >
               Add it in Settings
-            </a>
+            </button>
             .
           </span>
           <button
@@ -359,32 +452,7 @@ export default function ChatPanel({ projectId, videoId, videoTitle, transcript, 
             className="shrink-0 text-amber-400 hover:text-amber-600 dark:hover:text-amber-300 transition-colors mt-0.5"
           >
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
-            </svg>
-          </button>
-        </div>
-      )}
-
-      {/* API key banner */}
-      {showKeyBanner && (
-        <div className="mx-3 mt-2 flex items-start gap-2.5 rounded-lg border border-amber-200 dark:border-amber-900/60 bg-amber-50 dark:bg-amber-950/30 px-3.5 py-2.5 text-xs shrink-0">
-          <svg className="shrink-0 mt-0.5 text-amber-500" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
-            <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
-          </svg>
-          <span className="flex-1 text-amber-800 dark:text-amber-200 leading-relaxed">
-            Chat requires an Anthropic API key.{" "}
-            <a href="/settings" className="underline underline-offset-2 hover:text-amber-900 dark:hover:text-amber-100 transition-colors">
-              Add it in Settings
-            </a>
-            .
-          </span>
-          <button
-            onClick={() => setShowKeyBanner(false)}
-            className="shrink-0 text-amber-400 hover:text-amber-600 dark:hover:text-amber-300 transition-colors mt-0.5"
-          >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+              <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
             </svg>
           </button>
         </div>
@@ -429,10 +497,9 @@ export default function ChatPanel({ projectId, videoId, videoTitle, transcript, 
         onMouseUp={handleMessagesMouseUp}
         className="flex-1 overflow-y-auto px-4 py-4 space-y-6"
       >
-        {/* Placeholder — no video */}
         {!videoId && messages.length === 0 && (
           <p className="text-sm text-gray-400 dark:text-gray-500 text-center mt-8">
-            Ask anything — load a video to discuss it
+            Open a YouTube video to start chatting.
           </p>
         )}
 
@@ -452,7 +519,7 @@ export default function ChatPanel({ projectId, videoId, videoTitle, transcript, 
               </div>
             ) : (
               <div className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
-                <div className={`group relative max-w-[85%]`}>
+                <div className="group relative max-w-[90%]">
                   <div
                     className={`px-3.5 py-2.5 text-sm leading-relaxed ${
                       msg.role === "user"
@@ -521,14 +588,20 @@ export default function ChatPanel({ projectId, videoId, videoTitle, transcript, 
       {/* Action strip — chat controls */}
       {videoId && (
         <div className="flex items-center gap-2 px-3 h-8 border-t border-gray-200 dark:border-gray-800 shrink-0">
+          {/* Video-only toggle — flex-1 so label compresses first at narrow widths */}
           <button
-            onClick={() => setVideoOnly((v) => { const next = !v; localStorage.setItem("videoOnly", String(next)); return next; })}
-            disabled={!transcript || transcript.length === 0}
-            title={!transcript || transcript.length === 0
-              ? "No transcript available"
-              : videoOnly
-              ? "Claude only answers based on what's said in the video. It won't use any outside knowledge."
-              : "Claude can use its general knowledge in addition to what's said in the video."
+            onClick={() => setVideoOnly((v) => {
+              const next = !v;
+              chrome.storage.local.set({ videoOnly: next });
+              return next;
+            })}
+            disabled={!hasTranscript}
+            title={
+              !hasTranscript
+                ? "No transcript available"
+                : videoOnly
+                ? "Claude only answers based on what's said in the video. It won't use any outside knowledge."
+                : "Claude can use its general knowledge in addition to what's said in the video."
             }
             className="flex items-center gap-1.5 flex-1 min-w-0 disabled:opacity-40 disabled:cursor-not-allowed group"
           >
@@ -542,15 +615,26 @@ export default function ChatPanel({ projectId, videoId, videoTitle, transcript, 
               {videoOnly ? "· answers from the video transcript" : "· may draw on outside knowledge"}
             </span>
           </button>
-          <button onClick={fetchSuggestions} disabled={loadingSuggestions}
+
+          {/* Suggest */}
+          <button
+            onClick={fetchSuggestions}
+            disabled={loadingSuggestions}
             className="shrink-0 text-[11px] px-2.5 py-1 rounded-full border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:border-blue-400 hover:text-blue-600 dark:hover:text-blue-400 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-            title="Suggest questions">
+            title="Suggest questions"
+          >
             {loadingSuggestions ? "…" : "Suggest"}
           </button>
+
           <div className="w-px h-4 bg-gray-200 dark:bg-gray-700 shrink-0" />
-          <button onClick={clearChat} disabled={messages.length === 0}
+
+          {/* Clear */}
+          <button
+            onClick={clearChat}
+            disabled={messages.length === 0}
             className="shrink-0 text-[11px] px-2.5 py-1 rounded-full border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:border-red-400 hover:text-red-500 dark:hover:text-red-400 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-            title="Clear all messages">
+            title="Clear all messages"
+          >
             Clear
           </button>
         </div>
@@ -558,14 +642,10 @@ export default function ChatPanel({ projectId, videoId, videoTitle, transcript, 
 
       {/* Input or Start conversation */}
       <div className="px-3 py-3 border-t border-gray-200 dark:border-gray-800 shrink-0">
-        {videoLoading ? (
-          <p className="text-[12px] text-gray-400 dark:text-gray-500 text-center py-1 animate-pulse">
-            Loading video…
-          </p>
-        ) : !chatStarted && videoId ? (
+        {!chatStarted && videoId ? (
           <button
             onClick={startConversation}
-            disabled={loadingSuggestions || showKeyBanner || !settingsLoaded}
+            disabled={loadingSuggestions || showKeyBanner}
             className="w-full py-2.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-60 text-white rounded-xl text-sm font-medium transition-colors"
           >
             {loadingSuggestions ? "Loading suggestions…" : "Start conversation"}
@@ -582,14 +662,18 @@ export default function ChatPanel({ projectId, videoId, videoTitle, transcript, 
                   sendMessage();
                 }
               }}
-              placeholder={showKeyBanner ? "Add your API key in Settings to chat" : "Ask anything… (Enter to send, Shift+Enter for new line)"}
-              disabled={showKeyBanner || !settingsLoaded}
+              placeholder={
+                showKeyBanner
+                  ? "Add your API key in Settings to chat"
+                  : "Ask anything… (Enter to send)"
+              }
+              disabled={showKeyBanner}
               rows={2}
               className="flex-1 px-3.5 py-2.5 text-sm rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500/60 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             />
             <button
               onClick={sendMessage}
-              disabled={streaming || !input.trim() || showKeyBanner || !settingsLoaded}
+              disabled={streaming || !input.trim() || showKeyBanner}
               className="px-4 py-2.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-xl text-sm font-medium transition-colors shrink-0"
             >
               Send

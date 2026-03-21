@@ -1,6 +1,7 @@
 // Background service worker — handles Anthropic API calls and transcript state
+console.log("[background] service worker started");
 
-type TranscriptSegment = { offset: number; text: string };
+type TranscriptSegment = { offset: number; text: string; duration?: number };
 
 type VideoState = {
   videoId: string | null;
@@ -34,6 +35,11 @@ let currentState: VideoState = {
   hasTranscript: false,
   isYoutube: false,
 };
+
+// Per-tab extraction sequence counter. Incremented each time extractFromTab
+// starts for a given tab. Results from superseded extractions (e.g. rapid
+// navigation A→B where A's fetch finishes after B's) are discarded.
+const extractionSeq = new Map<number, number>();
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -179,7 +185,10 @@ async function handleChat(payload: {
 
     while (true) {
       const { done, value } = await reader.read();
-      if (done) break;
+      if (done) {
+        buffer += decoder.decode(); // flush any bytes held for multi-byte UTF-8
+        break;
+      }
       buffer += decoder.decode(value, { stream: true });
 
       const lines = buffer.split("\n");
@@ -332,72 +341,171 @@ const restorePromise = restoreState();
 
 // ── Direct tab extraction (handles already-open tabs / fresh install) ─────────
 
-async function extractFromTab(tabId: number) {
-  type PlayerData = {
-    videoId: string;
-    videoTitle: string;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    tracks: any[];
-  } | null;
-
-  // Retry up to 4 times — YouTube sets ytInitialPlayerResponse slightly after
-  // the page's load event, so document_complete doesn't guarantee it's ready.
-  let data: PlayerData = null;
-  for (let attempt = 0; attempt < 4; attempt++) {
-    if (attempt > 0) await new Promise((r) => setTimeout(r, attempt * 800));
-    let results: chrome.scripting.InjectionResult<PlayerData>[] | null = null;
-    try {
-      results = await chrome.scripting.executeScript<[], PlayerData>({
-        target: { tabId },
-        // MAIN world so we can read ytInitialPlayerResponse set by page scripts
-        world: "MAIN",
-        func: () => {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const player = (window as any).ytInitialPlayerResponse;
-          if (!player?.videoDetails?.videoId) return null;
-          return {
-            videoId: player.videoDetails.videoId,
-            videoTitle: player.videoDetails.title ?? "Unknown Video",
-            tracks: player?.captions?.playerCaptionsTracklistRenderer?.captionTracks ?? [],
-          };
-        },
-      });
-    } catch {
-      return; // tab not ready or not injectable
-    }
-    data = results?.[0]?.result ?? null;
-    if (data?.videoId) break;
+// Parse transcript text — handles both json3 and XML formats returned by YouTube
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function parseTranscriptText(rawText: string): TranscriptSegment[] {
+  if (rawText.length < 10) return [];
+  if (rawText.trimStart().startsWith("{")) {
+    // json3 format
+    return parseJson3Transcript(JSON.parse(rawText));
   }
+  // XML format (some tracks return XML even with fmt=json3)
+  const segments: TranscriptSegment[] = [];
+  for (const m of rawText.matchAll(/<text\s+start="([\d.]+)"\s+dur="([\d.]+)"[^>]*>([\s\S]*?)<\/text>/g)) {
+    const text = m[3]
+      .replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">")
+      .replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/<[^>]+>/g, "").trim();
+    if (text) segments.push({ text, offset: Math.round(parseFloat(m[1]) * 1000), duration: Math.round(parseFloat(m[2]) * 1000) });
+  }
+  return segments;
+}
 
-  if (!data?.videoId) return;
+function broadcastVideoState(videoId: string, videoTitle: string, transcript: TranscriptSegment[] | null, hasTranscript: boolean) {
+  currentState = { videoId, videoTitle, transcript, hasTranscript, isYoutube: true };
+  const payload: Record<string, unknown> = { currentVideoId: videoId, currentVideoTitle: videoTitle, currentHasTranscript: hasTranscript };
+  if (transcript && hasTranscript) {
+    payload[`transcript_${videoId}`] = transcript;
+    payload[`title_${videoId}`] = videoTitle;
+  }
+  chrome.storage.local.set(payload);
+  chrome.runtime.sendMessage({ type: "VIDEO_STATE", videoId, videoTitle, hasTranscript }).catch(() => {});
+}
+
+// Extract transcript for a tab. All fetching happens inside MAIN world so that
+// YouTube session cookies are automatically included (same-origin requests).
+async function extractFromTab(tabId: number) {
+  const seq = (extractionSeq.get(tabId) ?? 0) + 1;
+  extractionSeq.set(tabId, seq);
+
+  let videoId: string | null = null;
+  let videoTitle = "Unknown Video";
+  try {
+    const tab = await chrome.tabs.get(tabId);
+    if (tab.url) videoId = new URL(tab.url).searchParams.get("v");
+    if (tab.title) videoTitle = tab.title.replace(/ [-–] YouTube$/, "").trim() || "Unknown Video";
+  } catch { return; }
+  if (!videoId) return;
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const track = data.tracks.find((t: any) => t.languageCode === "en") ?? data.tracks[0];
-  if (!track) {
-    currentState = { videoId: data.videoId, videoTitle: data.videoTitle, transcript: null, hasTranscript: false, isYoutube: true };
-    chrome.storage.local.set({ currentVideoId: data.videoId, currentVideoTitle: data.videoTitle, currentHasTranscript: false });
-    chrome.runtime.sendMessage({ type: "VIDEO_STATE", videoId: data.videoId, videoTitle: data.videoTitle, hasTranscript: false }).catch(() => {});
-    return;
-  }
+  const results = await chrome.scripting.executeScript<[string], any>({
+    target: { tabId },
+    world: "MAIN",
+    func: async (vid: string) => {
+      // Helper: fetch a caption URL and return the text (handles empty/error)
+      async function fetchCaption(url: string): Promise<string> {
+        try {
+          const r = await fetch(url, { credentials: "include" });
+          return r.ok ? await r.text() : "";
+        } catch { return ""; }
+      }
 
-  try {
-    const captionUrl = new URL(track.baseUrl);
-    captionUrl.searchParams.set("fmt", "json3");
-    const transcriptData = await fetch(captionUrl.toString()).then((r) => r.json());
-    const segments = parseJson3Transcript(transcriptData);
-    currentState = { videoId: data.videoId, videoTitle: data.videoTitle, transcript: segments, hasTranscript: true, isYoutube: true };
-    chrome.storage.local.set({
-      currentVideoId: data.videoId,
-      currentVideoTitle: data.videoTitle,
-      currentHasTranscript: true,
-      [`transcript_${data.videoId}`]: segments,
-      [`title_${data.videoId}`]: data.videoTitle,
-    });
-    chrome.runtime.sendMessage({ type: "VIDEO_STATE", videoId: data.videoId, videoTitle: data.videoTitle, hasTranscript: true }).catch(() => {});
-  } catch {
-    currentState = { videoId: data.videoId, videoTitle: data.videoTitle, transcript: null, hasTranscript: false, isYoutube: true };
-    chrome.storage.local.set({ currentVideoId: data.videoId, currentVideoTitle: data.videoTitle, currentHasTranscript: false });
-    chrome.runtime.sendMessage({ type: "VIDEO_STATE", videoId: data.videoId, videoTitle: data.videoTitle, hasTranscript: false }).catch(() => {});
+      // Helper: pick best English caption track from a tracks array
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      function pickTrack(tracks: any[]): any {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        return tracks.find((t: any) => t.languageCode === "en") ??
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          tracks.find((t: any) => t.languageCode?.startsWith("en")) ??
+          tracks[0] ?? null;
+      }
+
+      // Strategy 1: public unsigned timedtext URL — works for most videos without
+      // signed parameters, fetched in MAIN world so session cookies are included.
+      for (const kind of ["", "asr"]) {
+        const u = new URL("https://www.youtube.com/api/timedtext");
+        u.searchParams.set("v", vid);
+        u.searchParams.set("lang", "en");
+        u.searchParams.set("fmt", "json3");
+        if (kind) u.searchParams.set("kind", kind);
+        const text = await fetchCaption(u.toString());
+        if (text.length > 10) return { text, source: `timedtext_${kind || "manual"}` };
+      }
+
+      // Strategy 2: signed baseUrl from live player element (post-SPA-nav safe)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const player = document.getElementById("movie_player") as any;
+      if (player?.getPlayerResponse) {
+        try {
+          const r = player.getPlayerResponse();
+          if (r?.videoDetails?.videoId === vid) {
+            const tracks = r?.captions?.playerCaptionsTracklistRenderer?.captionTracks ?? [];
+            const track = pickTrack(tracks);
+            if (track?.baseUrl) {
+              const u = new URL(track.baseUrl);
+              u.searchParams.set("fmt", "json3");
+              const text = await fetchCaption(u.toString());
+              if (text.length > 10) return { text, source: "player_element" };
+              // Also try raw URL without fmt override
+              const text2 = await fetchCaption(track.baseUrl);
+              if (text2.length > 10) return { text: text2, source: "player_element_raw" };
+            }
+          }
+        } catch { /* ignore */ }
+      }
+
+      // Strategy 3: signed baseUrl from ytInitialPlayerResponse (page load only)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const ipr = (window as any).ytInitialPlayerResponse;
+      if (ipr?.videoDetails?.videoId === vid) {
+        const tracks = ipr?.captions?.playerCaptionsTracklistRenderer?.captionTracks ?? [];
+        const track = pickTrack(tracks);
+        if (track?.baseUrl) {
+          const u = new URL(track.baseUrl);
+          u.searchParams.set("fmt", "json3");
+          const text = await fetchCaption(u.toString());
+          if (text.length > 10) return { text, source: "ipr" };
+        }
+      }
+
+      // Strategy 4: Innertube /youtubei/v1/player (same-origin POST with cookies)
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const ytcfg = (window as any).ytcfg;
+        const apiKey = ytcfg?.get?.("INNERTUBE_API_KEY");
+        const clientVersion = ytcfg?.get?.("INNERTUBE_CLIENT_VERSION") || "2.20240101.00.00";
+        const sts = ytcfg?.get?.("STS");
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const body: any = {
+          context: { client: { clientName: "WEB", clientVersion, hl: "en" } },
+          videoId: vid,
+        };
+        if (sts) body.playbackContext = { contentPlaybackContext: { signatureTimestamp: sts, html5Preference: "HTML5_PREF_WANTS" } };
+        const res = await fetch(`/youtubei/v1/player${apiKey ? `?key=${apiKey}` : ""}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify(body),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data?.videoDetails?.videoId === vid) {
+            const tracks = data?.captions?.playerCaptionsTracklistRenderer?.captionTracks ?? [];
+            const track = pickTrack(tracks);
+            if (track?.baseUrl) {
+              const u = new URL(track.baseUrl);
+              u.searchParams.set("fmt", "json3");
+              const text = await fetchCaption(u.toString());
+              if (text.length > 10) return { text, source: "innertube" };
+            }
+          }
+        }
+      } catch { /* ignore */ }
+
+      return { text: "", source: "none" };
+    },
+    args: [videoId],
+  });
+
+  if (extractionSeq.get(tabId) !== seq) return;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const r = results?.[0]?.result as any;
+  console.log("[extractFromTab]", videoId, "source:", r?.source, "len:", r?.text?.length ?? 0);
+
+  if (r?.text?.length > 10) {
+    const segments = parseTranscriptText(r.text);
+    broadcastVideoState(videoId, videoTitle, segments.length > 0 ? segments : null, segments.length > 0);
+  } else {
+    broadcastVideoState(videoId, videoTitle, null, false);
   }
 }
 
@@ -425,60 +533,27 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
 // ── Message handler ──────────────────────────────────────────────────────────
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-chrome.runtime.onMessage.addListener((msg: any, _sender, sendResponse) => {
-  if (msg.type === "TRANSCRIPT_READY") {
-    const segments = parseJson3Transcript(msg.transcript);
-    currentState = {
-      videoId: msg.videoId,
-      videoTitle: msg.videoTitle,
-      transcript: segments,
-      hasTranscript: true,
-      isYoutube: true,
-    };
-    // Persist to storage so it survives service worker restarts
-    chrome.storage.local.set({
-      currentVideoId: msg.videoId,
-      currentVideoTitle: msg.videoTitle,
-      currentHasTranscript: true,
-      [`transcript_${msg.videoId}`]: segments,
-      [`title_${msg.videoId}`]: msg.videoTitle,
-    });
-    chrome.runtime.sendMessage({
-      type: "VIDEO_STATE",
-      videoId: msg.videoId,
-      videoTitle: msg.videoTitle,
-      hasTranscript: true,
-    }).catch(() => {});
+chrome.runtime.onMessage.addListener((msg: any, sender, sendResponse) => {
+  console.log("[background] message received:", msg.type, "from tab:", sender.tab?.id);
+  // Content script notifies us when YouTube SPA-navigates to a new video.
+  // The content script can't read ytInitialPlayerResponse (isolated world),
+  // so we use extractFromTab (world:"MAIN") from the background instead.
+  if (msg.type === "YOUTUBE_NAVIGATED") {
+    const tabId = sender.tab?.id;
+    if (tabId) {
+      // Delay slightly so YouTube has time to update ytInitialPlayerResponse
+      setTimeout(() => extractFromTab(tabId), 600);
+    }
     sendResponse({ ok: true });
+    return true;
   }
 
-  if (msg.type === "TRANSCRIPT_UNAVAILABLE") {
-    currentState = {
-      videoId: msg.videoId,
-      videoTitle: msg.videoTitle,
-      transcript: null,
-      hasTranscript: false,
-      isYoutube: true,
-    };
-    chrome.storage.local.set({
-      currentVideoId: msg.videoId,
-      currentVideoTitle: msg.videoTitle,
-      currentHasTranscript: false,
-    });
-    chrome.runtime.sendMessage({
-      type: "VIDEO_STATE",
-      videoId: msg.videoId,
-      videoTitle: msg.videoTitle,
-      hasTranscript: false,
-    }).catch(() => {});
+  // Sidebar requests immediate extraction for a specific tab (e.g., on open)
+  if (msg.type === "EXTRACT_TAB") {
+    const tabId = msg.tabId as number | undefined;
+    if (tabId) extractFromTab(tabId);
     sendResponse({ ok: true });
-  }
-
-  if (msg.type === "NOT_YOUTUBE") {
-    currentState = { videoId: null, videoTitle: null, transcript: null, hasTranscript: false, isYoutube: false };
-    chrome.storage.local.set({ currentVideoId: null });
-    chrome.runtime.sendMessage({ type: "VIDEO_STATE", videoId: null, videoTitle: null, hasTranscript: false }).catch(() => {});
-    sendResponse({ ok: true });
+    return true;
   }
 
   if (msg.type === "GET_STATE") {

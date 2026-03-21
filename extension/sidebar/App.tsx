@@ -42,6 +42,9 @@ export default function App() {
   const [transcriptKnown, setTranscriptKnown] = useState(false);
   const [isYoutube, setIsYoutube] = useState(false);
   const notebookRef = useRef<NotebookHandle>(null);
+  // Set to true when VIDEO_STATE arrives. Prevents a slow GET_STATE response
+  // from overwriting videoId/videoTitle that VIDEO_STATE already set correctly.
+  const videoStateReceivedRef = useRef(false);
 
   // Load persisted layout state
   useEffect(() => {
@@ -56,6 +59,8 @@ export default function App() {
   useEffect(() => {
     // 1. Immediately check the active tab — if it's YouTube, show the panel
     //    right away and seed videoId + videoTitle before extractFromTab completes.
+    //    Also trigger EXTRACT_TAB so the background re-extracts transcript via
+    //    world:"MAIN" (the content script can't do this from isolated world).
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
       const tab = tabs[0];
       const url = tab?.url ?? "";
@@ -72,19 +77,33 @@ export default function App() {
           const title = tab.title.replace(/ [-–] YouTube$/, "").trim();
           if (title) setVideoTitle(title);
         }
+        // Ask background to (re-)extract transcript for this tab right now.
+        // This handles the case where the sidebar opens on an already-loaded
+        // YouTube tab that never triggered tabs.onUpdated (e.g. after SW restart).
+        if (tab?.id) {
+          chrome.runtime.sendMessage({ type: "EXTRACT_TAB", tabId: tab.id }).catch(() => {});
+        }
       }
     });
 
-    // 2. Get full persisted state from background (awaits restoreState internally)
+    // 2. Get full persisted state from background (awaits restoreState internally).
+    //    Only apply videoId/videoTitle if VIDEO_STATE hasn't arrived yet — VIDEO_STATE
+    //    is authoritative and GET_STATE may carry stale data from a previous session.
+    //    isYoutube is derived from tabs.query (above) or VIDEO_STATE, not from persisted
+    //    state, because the background has no way to clear isYoutube when leaving YouTube.
     chrome.runtime.sendMessage({ type: "GET_STATE" }, (response) => {
       if (chrome.runtime.lastError || !response) return;
-      if (response.videoId) setVideoId(response.videoId);
-      if (response.videoTitle) setVideoTitle(response.videoTitle);
-      setHasTranscript(response.hasTranscript ?? false);
-      if (response.isYoutube) setIsYoutube(true);
-      // Only trust GET_STATE when hasTranscript is confirmed true — if false,
-      // wait for VIDEO_STATE which fires after extractFromTab actually finishes.
-      if (response.hasTranscript) setTranscriptKnown(true);
+      if (!videoStateReceivedRef.current) {
+        if (response.videoId) setVideoId(response.videoId);
+        if (response.videoTitle) setVideoTitle(response.videoTitle);
+      }
+      // Only trust hasTranscript=true from GET_STATE — false may be stale.
+      // VIDEO_STATE (sent after extractFromTab completes) is the authoritative
+      // source for both true and false, and always sets transcriptKnown=true.
+      if (response.hasTranscript) {
+        setHasTranscript(true);
+        setTranscriptKnown(true);
+      }
     });
   }, []);
 
@@ -95,16 +114,12 @@ export default function App() {
     return () => window.removeEventListener("open-settings", handler);
   }, []);
 
-  // Reset transcriptKnown whenever videoId changes (new video navigation)
-  useEffect(() => {
-    setTranscriptKnown(false);
-  }, [videoId]);
-
   // Listen for video state updates from background
   useEffect(() => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const listener = (msg: any) => {
       if (msg.type === "VIDEO_STATE") {
+        videoStateReceivedRef.current = true;
         setVideoId(msg.videoId ?? null);
         setVideoTitle(msg.videoTitle ?? null);
         setHasTranscript(msg.hasTranscript ?? false);

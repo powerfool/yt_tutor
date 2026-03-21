@@ -70,7 +70,9 @@ export default function ChatPanel({
   // Check API key on mount
   useEffect(() => {
     chrome.storage.local.get("anthropicApiKey", (result) => {
-      if (!result.anthropicApiKey) {
+      const hasKey = !!result.anthropicApiKey;
+      console.log(`[chat-panel] API key check: ${hasKey ? "present" : "missing → showing banner"}`);
+      if (!hasKey) {
         setShowKeyBanner(true);
       }
     });
@@ -85,11 +87,13 @@ export default function ChatPanel({
       loadingMessagesRef.current = false;
       return;
     }
+    console.log(`[chat-panel] videoId changed → ${videoId}, loading messages`);
     // Set the ref synchronously — the pill effect (which runs in the same commit)
     // checks this ref and returns early, preventing it from firing before messages load.
     loadingMessagesRef.current = true;
     setMessagesLoaded(false);
     loadMessages(videoId).then((msgs) => {
+      console.log(`[chat-panel] messages loaded: ${msgs.length} msgs for ${videoId}`);
       setMessages(msgs);
       allMessagesRef.current = msgs;
       loadingMessagesRef.current = false;
@@ -140,9 +144,14 @@ export default function ChatPanel({
 
   // Listen for chat chunks from background
   useEffect(() => {
+    let firstChunkLogged = false;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const listener = (msg: any) => {
       if (msg.type === "CHAT_CHUNK" && msg.streamId === activeStreamId.current) {
+        if (!firstChunkLogged) {
+          console.log(`[chat-panel] CHAT_CHUNK streamId=${msg.streamId} (first chunk received, streaming active)`);
+          firstChunkLogged = true;
+        }
         setMessages((prev) =>
           prev.map((m) =>
             m.id === activeStreamId.current
@@ -162,6 +171,7 @@ export default function ChatPanel({
             const finalMsg = prev.find((m) => m.id === streamId);
             if (finalMsg && videoId) {
               const updated = prev;
+              console.log(`[chat-panel] CHAT_DONE streamId=${streamId} finalLen=${finalMsg.content.length} chars`);
               saveMessages(videoId, updated);
               allMessagesRef.current = updated;
             }
@@ -173,6 +183,7 @@ export default function ChatPanel({
       if (msg.type === "CHAT_ERROR" && msg.streamId === activeStreamId.current) {
         const streamId = activeStreamId.current;
         activeStreamId.current = null;
+        console.log(`[chat-panel] CHAT_ERROR streamId=${streamId} error="${msg.error}"`);
         if (msg.error === "no_api_key") {
           setShowKeyBanner(true);
         }
@@ -264,9 +275,15 @@ export default function ChatPanel({
   async function fetchSuggestions() {
     setLoadingSuggestions(true);
     const requestId = crypto.randomUUID();
+    const history = buildHistory();
+    console.log(`[chat-panel] fetchSuggestions START requestId=${requestId} history=${history.length}`);
+
+    let settled = false;
 
     const listener = (msg: { type: string; requestId: string; suggestions: string[] }) => {
       if (msg.type === "SUGGEST_RESULT" && msg.requestId === requestId) {
+        settled = true;
+        console.log(`[chat-panel] fetchSuggestions DONE ${msg.suggestions.length} suggestions received`);
         setSuggestions(msg.suggestions);
         setLoadingSuggestions(false);
         chrome.runtime.onMessage.removeListener(listener);
@@ -278,13 +295,16 @@ export default function ChatPanel({
       type: "SUGGEST",
       payload: {
         videoId,
-        history: buildHistory(),
+        history,
         requestId,
       },
     });
 
     // Timeout fallback
     setTimeout(() => {
+      if (!settled) {
+        console.log(`[chat-panel] fetchSuggestions TIMEOUT requestId=${requestId}`);
+      }
       chrome.runtime.onMessage.removeListener(listener);
       setLoadingSuggestions(false);
     }, 15000);
@@ -311,6 +331,8 @@ export default function ChatPanel({
 
     const streamId = crypto.randomUUID();
     activeStreamId.current = streamId;
+    const history = buildHistory();
+    console.log(`[chat-panel] sendMessage: streamId=${streamId} msg="${userText.slice(0, 60)}${userText.length > 60 ? "…" : ""}" history=${history.length} videoOnly=${videoOnly}`);
 
     const streamMsg: Message = {
       id: streamId,
@@ -335,7 +357,7 @@ export default function ChatPanel({
       type: "CHAT",
       payload: {
         message: userText,
-        history: buildHistory(),
+        history,
         videoOnly,
         videoId,
         currentTimeSec: 0,

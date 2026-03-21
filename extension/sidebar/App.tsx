@@ -81,8 +81,11 @@ export default function App() {
         // This handles the case where the sidebar opens on an already-loaded
         // YouTube tab that never triggered tabs.onUpdated (e.g. after SW restart).
         if (tab?.id) {
+          console.log(`[app] mount: active tab url=${url} → sending EXTRACT_TAB tabId=${tab.id}`);
           chrome.runtime.sendMessage({ type: "EXTRACT_TAB", tabId: tab.id }).catch(() => {});
         }
+      } else {
+        console.log(`[app] mount: active tab not YouTube (url=${url})`);
       }
     });
 
@@ -93,6 +96,7 @@ export default function App() {
     //    state, because the background has no way to clear isYoutube when leaving YouTube.
     chrome.runtime.sendMessage({ type: "GET_STATE" }, (response) => {
       if (chrome.runtime.lastError || !response) return;
+      console.log(`[app] GET_STATE response: videoId=${response.videoId} hasTranscript=${response.hasTranscript} (videoStateReceived=${videoStateReceivedRef.current}, ${videoStateReceivedRef.current ? "skipping stale" : "applying"})`);
       if (!videoStateReceivedRef.current) {
         if (response.videoId) setVideoId(response.videoId);
         if (response.videoTitle) setVideoTitle(response.videoTitle);
@@ -119,6 +123,7 @@ export default function App() {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const listener = (msg: any) => {
       if (msg.type === "VIDEO_STATE") {
+        console.log(`[app] VIDEO_STATE: videoId=${msg.videoId} title="${msg.videoTitle}" hasTranscript=${msg.hasTranscript}`);
         videoStateReceivedRef.current = true;
         setVideoId(msg.videoId ?? null);
         setVideoTitle(msg.videoTitle ?? null);
@@ -135,6 +140,7 @@ export default function App() {
   const cycleLayout = useCallback(() => {
     setLayout((prev) => {
       const next = nextLayout(prev);
+      console.log(`[app] layout changed: ${prev} → ${next} (persisted)`);
       chrome.storage.local.set({ layoutState: next });
       return next;
     });

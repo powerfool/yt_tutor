@@ -120,8 +120,12 @@ async function handleChat(payload: {
 }) {
   const { message, history, videoOnly, videoId, currentTimeSec, streamId } = payload;
 
+  console.log(`[chat] START streamId=${streamId} videoId=${videoId} history=${history.length}msgs videoOnly=${videoOnly}`);
+
   const stored = await chrome.storage.local.get("anthropicApiKey");
   const apiKey = stored.anthropicApiKey as string | undefined;
+
+  console.log(`[chat] API key: ${apiKey ? "present" : "missing"}`);
 
   if (!apiKey) {
     chrome.runtime.sendMessage({
@@ -145,9 +149,12 @@ async function handleChat(payload: {
     videoTitle = stored2[titleKey] as string | null ?? null;
   }
 
+  console.log(`[chat] transcript: ${transcript ? `${transcript.length} segments (loaded from storage)` : "none"}`);
+
   const systemBlocks = buildSystemBlocks(transcript, videoTitle, videoOnly, currentTimeSec);
 
   try {
+    console.log("[chat] calling Anthropic API...");
     const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {
@@ -165,6 +172,8 @@ async function handleChat(payload: {
       }),
     });
 
+    console.log(`[chat] response status: ${response.status}`);
+
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -175,6 +184,7 @@ async function handleChat(payload: {
         userError = "Credit balance too low. Top up your Anthropic account.";
       } else if (response.status === 429) userError = "Rate limited. Please wait a moment.";
       else if (response.status === 529) userError = "Anthropic API overloaded. Try again soon.";
+      console.log(`[chat] ERROR streamId=${streamId} status=${response.status} → "${userError}"`);
       chrome.runtime.sendMessage({ type: "CHAT_ERROR", streamId, error: userError }).catch(() => {});
       return;
     }
@@ -182,6 +192,8 @@ async function handleChat(payload: {
     const reader = response.body!.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
+    let totalChars = 0;
+    let firstChunkLogged = false;
 
     while (true) {
       const { done, value } = await reader.read();
@@ -204,6 +216,11 @@ async function handleChat(payload: {
             parsed.type === "content_block_delta" &&
             parsed.delta?.type === "text_delta"
           ) {
+            if (!firstChunkLogged) {
+              console.log(`[chat] streaming... streamId=${streamId}`);
+              firstChunkLogged = true;
+            }
+            totalChars += parsed.delta.text.length;
             chrome.runtime.sendMessage({
               type: "CHAT_CHUNK",
               streamId,
@@ -216,12 +233,15 @@ async function handleChat(payload: {
       }
     }
 
+    console.log(`[chat] DONE streamId=${streamId} totalChars=${totalChars}`);
     chrome.runtime.sendMessage({ type: "CHAT_DONE", streamId }).catch(() => {});
   } catch (err) {
+    const errMsg = err instanceof Error ? err.message : "Network error";
+    console.log(`[chat] ERROR streamId=${streamId} → "${errMsg}"`);
     chrome.runtime.sendMessage({
       type: "CHAT_ERROR",
       streamId,
-      error: err instanceof Error ? err.message : "Network error",
+      error: errMsg,
     }).catch(() => {});
   }
 }
@@ -235,8 +255,13 @@ async function handleSuggest(payload: {
 }) {
   const { videoId, history, requestId } = payload;
 
+  const hasPrior = history.filter((m) => m.role === "user" || m.role === "assistant").length > 0;
+  console.log(`[suggest] START requestId=${requestId} videoId=${videoId} history=${history.length}msgs hasPrior=${hasPrior}`);
+
   const stored = await chrome.storage.local.get("anthropicApiKey");
   const apiKey = stored.anthropicApiKey as string | undefined;
+
+  console.log(`[suggest] API key: ${apiKey ? "present" : "missing"}`);
 
   if (!apiKey) {
     chrome.runtime.sendMessage({
@@ -270,7 +295,6 @@ async function handleSuggest(payload: {
   }
 
   const historyMessages = history.filter((m) => m.role === "user" || m.role === "assistant");
-  const hasPrior = historyMessages.length > 0;
 
   const historyContext = hasPrior
     ? `\n\nConversation so far:\n${historyMessages.map((m) => `${m.role === "user" ? "Learner" : "Assistant"}: ${m.content}`).join("\n")}`
@@ -281,6 +305,7 @@ async function handleSuggest(payload: {
     : PROMPTS.suggestFresh;
 
   try {
+    console.log("[suggest] calling Anthropic API...");
     const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {
@@ -299,6 +324,8 @@ async function handleSuggest(payload: {
       }),
     });
 
+    console.log(`[suggest] response status: ${response.status}`);
+
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
     const data = await response.json();
@@ -308,8 +335,10 @@ async function handleSuggest(payload: {
     const suggestions: string[] = jsonMatch ? JSON.parse(jsonMatch[0]) : [];
     const trimmed = suggestions.slice(0, 4);
     while (trimmed.length < 4) trimmed.push("Tell me more about this topic.");
+    console.log(`[suggest] DONE requestId=${requestId} suggestions=${trimmed.length}`);
     chrome.runtime.sendMessage({ type: "SUGGEST_RESULT", requestId, suggestions: trimmed }).catch(() => {});
-  } catch {
+  } catch (err) {
+    console.log(`[suggest] ERROR requestId=${requestId} → fallback suggestions used (${err instanceof Error ? err.message : err})`);
     chrome.runtime.sendMessage({
       type: "SUGGEST_RESULT",
       requestId,
@@ -326,13 +355,17 @@ async function restoreState() {
   if (videoId) {
     const transcriptKey = `transcript_${videoId}`;
     const stored2 = await chrome.storage.local.get(transcriptKey);
+    const transcript = stored2[transcriptKey] as TranscriptSegment[] | null ?? null;
     currentState = {
       videoId,
       videoTitle: stored.currentVideoTitle as string | null ?? null,
-      transcript: stored2[transcriptKey] as TranscriptSegment[] | null ?? null,
+      transcript,
       hasTranscript: stored.currentHasTranscript as boolean ?? false,
       isYoutube: true,
     };
+    console.log(`[restoreState] stored videoId=${videoId} hasTranscript=${currentState.hasTranscript} transcript segments=${transcript?.length ?? 0}`);
+  } else {
+    console.log("[restoreState] nothing in storage");
   }
 }
 
@@ -361,6 +394,7 @@ function parseTranscriptText(rawText: string): TranscriptSegment[] {
 }
 
 function broadcastVideoState(videoId: string, videoTitle: string, transcript: TranscriptSegment[] | null, hasTranscript: boolean) {
+  console.log(`[broadcastVideoState] videoId=${videoId} title="${videoTitle}" hasTranscript=${hasTranscript} segments=${transcript?.length ?? 0}`);
   currentState = { videoId, videoTitle, transcript, hasTranscript, isYoutube: true };
   const payload: Record<string, unknown> = { currentVideoId: videoId, currentVideoTitle: videoTitle, currentHasTranscript: hasTranscript };
   if (transcript && hasTranscript) {
@@ -386,11 +420,16 @@ async function extractFromTab(tabId: number) {
   } catch { return; }
   if (!videoId) return;
 
+  console.log(`[extractFromTab] START tabId=${tabId} seq=${seq} videoId=${videoId}`);
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const results = await chrome.scripting.executeScript<[string], any>({
     target: { tabId },
     world: "MAIN",
     func: async (vid: string) => {
+      type DebugEntry = { strategy: string; tried: boolean; success: boolean; len: number };
+      const debug: DebugEntry[] = [];
+
       // Helper: fetch a caption URL and return the text (handles empty/error)
       async function fetchCaption(url: string): Promise<string> {
         try {
@@ -412,13 +451,15 @@ async function extractFromTab(tabId: number) {
       // Strategy 1: public unsigned timedtext URL — works for most videos without
       // signed parameters, fetched in MAIN world so session cookies are included.
       for (const kind of ["", "asr"]) {
+        const stratName = `timedtext_${kind || "manual"}`;
         const u = new URL("https://www.youtube.com/api/timedtext");
         u.searchParams.set("v", vid);
         u.searchParams.set("lang", "en");
         u.searchParams.set("fmt", "json3");
         if (kind) u.searchParams.set("kind", kind);
         const text = await fetchCaption(u.toString());
-        if (text.length > 10) return { text, source: `timedtext_${kind || "manual"}` };
+        debug.push({ strategy: stratName, tried: true, success: text.length > 10, len: text.length });
+        if (text.length > 10) return { text, source: stratName, debug };
       }
 
       // Strategy 2: signed baseUrl from live player element (post-SPA-nav safe)
@@ -434,13 +475,21 @@ async function extractFromTab(tabId: number) {
               const u = new URL(track.baseUrl);
               u.searchParams.set("fmt", "json3");
               const text = await fetchCaption(u.toString());
-              if (text.length > 10) return { text, source: "player_element" };
+              debug.push({ strategy: "player_element", tried: true, success: text.length > 10, len: text.length });
+              if (text.length > 10) return { text, source: "player_element", debug };
               // Also try raw URL without fmt override
               const text2 = await fetchCaption(track.baseUrl);
-              if (text2.length > 10) return { text: text2, source: "player_element_raw" };
+              debug.push({ strategy: "player_element_raw", tried: true, success: text2.length > 10, len: text2.length });
+              if (text2.length > 10) return { text: text2, source: "player_element_raw", debug };
+            } else {
+              debug.push({ strategy: "player_element", tried: true, success: false, len: 0 });
             }
+          } else {
+            debug.push({ strategy: "player_element", tried: true, success: false, len: 0 });
           }
-        } catch { /* ignore */ }
+        } catch {
+          debug.push({ strategy: "player_element", tried: true, success: false, len: 0 });
+        }
       }
 
       // Strategy 3: signed baseUrl from ytInitialPlayerResponse (page load only)
@@ -453,7 +502,10 @@ async function extractFromTab(tabId: number) {
           const u = new URL(track.baseUrl);
           u.searchParams.set("fmt", "json3");
           const text = await fetchCaption(u.toString());
-          if (text.length > 10) return { text, source: "ipr" };
+          debug.push({ strategy: "ipr", tried: true, success: text.length > 10, len: text.length });
+          if (text.length > 10) return { text, source: "ipr", debug };
+        } else {
+          debug.push({ strategy: "ipr", tried: true, success: false, len: 0 });
         }
       }
 
@@ -485,26 +537,48 @@ async function extractFromTab(tabId: number) {
               const u = new URL(track.baseUrl);
               u.searchParams.set("fmt", "json3");
               const text = await fetchCaption(u.toString());
-              if (text.length > 10) return { text, source: "innertube" };
+              debug.push({ strategy: "innertube", tried: true, success: text.length > 10, len: text.length });
+              if (text.length > 10) return { text, source: "innertube", debug };
+            } else {
+              debug.push({ strategy: "innertube", tried: true, success: false, len: 0 });
             }
+          } else {
+            debug.push({ strategy: "innertube", tried: true, success: false, len: 0 });
           }
+        } else {
+          debug.push({ strategy: "innertube", tried: true, success: false, len: 0 });
         }
-      } catch { /* ignore */ }
+      } catch {
+        debug.push({ strategy: "innertube", tried: true, success: false, len: 0 });
+      }
 
-      return { text: "", source: "none" };
+      return { text: "", source: "none", debug };
     },
     args: [videoId],
   });
 
-  if (extractionSeq.get(tabId) !== seq) return;
+  if (extractionSeq.get(tabId) !== seq) {
+    console.log(`[extractFromTab] STALE seq=${seq} (current=${extractionSeq.get(tabId)}), discarding ${videoId}`);
+    return;
+  }
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const r = results?.[0]?.result as any;
-  console.log("[extractFromTab]", videoId, "source:", r?.source, "len:", r?.text?.length ?? 0);
+
+  // Log per-strategy debug info from the injected script
+  if (r?.debug) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const d of r.debug as any[]) {
+      console.log(`[extractFromTab] strategy=${d.strategy} success=${d.success} len=${d.len}`);
+    }
+  }
 
   if (r?.text?.length > 10) {
     const segments = parseTranscriptText(r.text);
+    console.log(`[extractFromTab] DONE videoId=${videoId} source=${r.source} segments=${segments.length}`);
     broadcastVideoState(videoId, videoTitle, segments.length > 0 ? segments : null, segments.length > 0);
   } else {
+    console.log(`[extractFromTab] NO TRANSCRIPT videoId=${videoId} (source=${r?.source ?? "none"})`);
     broadcastVideoState(videoId, videoTitle, null, false);
   }
 }
@@ -515,6 +589,7 @@ chrome.runtime.onInstalled.addListener(async () => {
   chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => {});
   // Inject into already-open YouTube tabs (fresh install won't have run content scripts)
   const tabs = await chrome.tabs.query({ url: "*://*.youtube.com/watch*" });
+  console.log(`[onInstalled] found ${tabs.length} open YouTube tab(s) → extracting`);
   for (const tab of tabs) {
     if (tab.id) extractFromTab(tab.id);
   }
@@ -526,6 +601,7 @@ chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => 
 // Extract when any YouTube watch page finishes loading
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (changeInfo.status === "complete" && tab.url?.includes("youtube.com/watch")) {
+    console.log(`[tabs.onUpdated] tabId=${tabId} status=complete url=${tab.url} → extracting`);
     extractFromTab(tabId);
   }
 });
@@ -534,12 +610,12 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 chrome.runtime.onMessage.addListener((msg: any, sender, sendResponse) => {
-  console.log("[background] message received:", msg.type, "from tab:", sender.tab?.id);
   // Content script notifies us when YouTube SPA-navigates to a new video.
   // The content script can't read ytInitialPlayerResponse (isolated world),
   // so we use extractFromTab (world:"MAIN") from the background instead.
   if (msg.type === "YOUTUBE_NAVIGATED") {
     const tabId = sender.tab?.id;
+    console.log(`[background] YOUTUBE_NAVIGATED tabId=${tabId} → queuing extract in 600ms`);
     if (tabId) {
       // Delay slightly so YouTube has time to update ytInitialPlayerResponse
       setTimeout(() => extractFromTab(tabId), 600);
@@ -550,6 +626,7 @@ chrome.runtime.onMessage.addListener((msg: any, sender, sendResponse) => {
 
   // Sidebar requests immediate extraction for a specific tab (e.g., on open)
   if (msg.type === "EXTRACT_TAB") {
+    console.log(`[background] EXTRACT_TAB tabId=${msg.tabId}`);
     const tabId = msg.tabId as number | undefined;
     if (tabId) extractFromTab(tabId);
     sendResponse({ ok: true });
@@ -557,6 +634,7 @@ chrome.runtime.onMessage.addListener((msg: any, sender, sendResponse) => {
   }
 
   if (msg.type === "GET_STATE") {
+    console.log(`[background] GET_STATE → videoId=${currentState.videoId} hasTranscript=${currentState.hasTranscript}`);
     restorePromise.then(() => {
       sendResponse({
         videoId: currentState.videoId,
@@ -569,12 +647,14 @@ chrome.runtime.onMessage.addListener((msg: any, sender, sendResponse) => {
   }
 
   if (msg.type === "CHAT") {
+    console.log(`[background] CHAT streamId=${msg.payload?.streamId}`);
     handleChat(msg.payload);
     sendResponse({ ok: true });
     return true;
   }
 
   if (msg.type === "SUGGEST") {
+    console.log(`[background] SUGGEST requestId=${msg.payload?.requestId}`);
     handleSuggest(msg.payload);
     sendResponse({ ok: true });
     return true;

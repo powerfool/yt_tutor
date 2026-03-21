@@ -2,7 +2,7 @@
 
 **YT Tutor** turns passive YouTube watching into active learning. Paste a URL, and alongside the video you get an AI research partner and a personal notebook — all in one window, all saved automatically.
 
-Self-hosted, runs on a VPS. Sign in with Google. API keys and AI prompts are configurable from the UI — no code changes needed after deploy.
+Built for solo use — single user, self-hosted. API keys and AI prompts are configurable from the UI — no code changes needed after first setup.
 
 ![Screenshot](/screenshot.png "Screenshot")
 
@@ -68,8 +68,8 @@ A gear icon in the tab bar opens the settings page. Add your Anthropic and YouTu
 | | |
 |---|---|
 | Framework | Next.js (App Router, TypeScript, Tailwind CSS v4) |
-| Database | PostgreSQL via Prisma (Neon) |
-| Auth | NextAuth v5 (Google OAuth, database sessions) |
+| Database | SQLite via Prisma |
+| Auth | NextAuth v5 (credentials, bcrypt) |
 | AI | Anthropic Claude API (streaming, prompt caching) |
 | Video | YouTube IFrame Player API + Data API v3 |
 | Transcripts | Direct YouTube caption fetch + yt-dlp fallback |
@@ -79,7 +79,7 @@ A gear icon in the tab bar opens the settings page. Add your Anthropic and YouTu
 
 ## Getting Started
 
-**Prerequisites:** Node.js 18+, [yt-dlp](https://github.com/yt-dlp/yt-dlp), a [Neon](https://neon.tech) Postgres database, and a [Google OAuth client](https://console.cloud.google.com/).
+**Prerequisites:** Node.js 18+, [yt-dlp](https://github.com/yt-dlp/yt-dlp).
 
 ```bash
 git clone https://github.com/powerfool/yt_tutor.git
@@ -90,16 +90,14 @@ npm install
 Copy `.env.example` to `.env` and fill in:
 
 ```env
-DATABASE_URL="postgresql://..."   # Neon connection string
+DATABASE_URL="file:./prisma/dev.db"
 
 # NextAuth — generate with: openssl rand -base64 32
 AUTH_SECRET="your-random-secret"
 AUTH_URL="http://localhost:3000"
 
-# Google OAuth (console.cloud.google.com → Credentials → OAuth 2.0 Client ID)
-# Dev redirect URI: http://localhost:3000/api/auth/callback/google
-AUTH_GOOGLE_ID="....apps.googleusercontent.com"
-AUTH_GOOGLE_SECRET="GOCSPX-..."
+ADMIN_USERNAME="your-username"
+ADMIN_PASSWORD_HASH='bcrypt-hash-of-your-password'  # use single quotes — $ in bcrypt hashes break double-quoted vars
 
 # Optional — can be added later via Settings in the UI
 ANTHROPIC_API_KEY="sk-ant-..."
@@ -113,7 +111,7 @@ npx prisma migrate deploy
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) and sign in with Google. API keys can be added any time from the Settings page in the UI.
+Open [http://localhost:3000](http://localhost:3000) and sign in with the `ADMIN_USERNAME` / password you configured. API keys can be added any time from the Settings page in the UI.
 
 ---
 
@@ -137,7 +135,7 @@ pm2 restart yt-tutor
 pm2 logs yt-tutor
 ```
 
-Make sure `.env` is populated on the server and `AUTH_URL` points to your public domain (e.g. `https://yourdomain.com`).
+Make sure `.env` is populated on the server and `AUTH_URL` points to your public domain (e.g. `https://yourdomain.com`). Use single quotes for `ADMIN_PASSWORD_HASH` to prevent shell interpretation of `$` characters.
 
 ## Security
 
@@ -159,7 +157,7 @@ Make sure `.env` is populated on the server and `AUTH_URL` points to your public
 
 Features and improvements to address in future iterations:
 
-- **Browser extension** — injected sidebar on YouTube pages (works on Chrome and Firefox); auth handoff from Google OAuth; same chat + notebook UI in a narrow layout calling the hosted API
+- **Browser extension** — injected sidebar on YouTube pages (works on Chrome and Firefox); same chat + notebook UI in a narrow layout calling the hosted API
 - **Encrypt API keys at rest** — application-level AES-256-GCM encryption for stored Anthropic/YouTube keys in the database, since users are trusting the app with keys that have billing implications
 - **Rate limiting on AI endpoints** — per-user request limits on `/api/chat`, `/api/chat/suggest`, and `/api/chat/chapters` to protect the server-level fallback API key
 - **Server-side chat history** — fetch conversation history from the DB in the chat route instead of trusting the client-supplied `history` array

@@ -14,11 +14,33 @@ function nextLayout(current: Layout): Layout {
   return LAYOUT_CYCLE[(idx + 1) % LAYOUT_CYCLE.length];
 }
 
+function IconLayoutDestination({ current }: { current: Layout }) {
+  // Shows the destination layout as two small panel rectangles
+  const chatFilled   = current === "chat"     ? "fill-current" : "fill-none stroke-current";
+  const noteFilled   = current === "notebook" ? "fill-current" : "fill-none stroke-current";
+  const bothFilled   = "fill-current";
+
+  // Destination: chat→both, both→notebook, notebook→chat
+  let leftFill: string, rightFill: string;
+  switch (current) {
+    case "chat":     leftFill = bothFilled;  rightFill = bothFilled;  break;
+    case "both":     leftFill = "fill-none stroke-current"; rightFill = bothFilled; break;
+    case "notebook": leftFill = bothFilled;  rightFill = "fill-none stroke-current"; break;
+  }
+
+  return (
+    <svg width="18" height="11" viewBox="0 0 18 11" fill="none" xmlns="http://www.w3.org/2000/svg" className="shrink-0">
+      <rect x="0.5" y="0.5" width="7" height="10" rx="1.5" strokeWidth="1" className={leftFill} />
+      <rect x="10.5" y="0.5" width="7" height="10" rx="1.5" strokeWidth="1" className={rightFill} />
+    </svg>
+  );
+}
+
 function layoutButtonLabel(current: Layout): string {
   switch (current) {
-    case "chat": return "+ Notebook";
-    case "both": return "Hide Chat";
-    case "notebook": return "+ Chat";
+    case "chat":     return "Split";
+    case "both":     return "Notebook only";
+    case "notebook": return "Chat only";
   }
 }
 
@@ -172,8 +194,10 @@ export default function App() {
     <div className="flex items-center gap-1">
       <button
         onClick={cycleLayout}
-        className="text-[11px] px-2.5 py-1 rounded-full border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:border-blue-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+        title={`Switch to ${layoutButtonLabel(layout)} view`}
+        className="flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded-full border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:border-blue-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
       >
+        <IconLayoutDestination current={layout} />
         {layoutButtonLabel(layout)}
       </button>
       <button
@@ -195,7 +219,7 @@ export default function App() {
       {/* Settings overlay */}
       {showSettings && (
         <div className="flex-1 overflow-y-auto">
-          <SettingsPanel onClose={() => setShowSettings(false)} headerControls={headerControls} />
+          <SettingsPanel onClose={() => setShowSettings(false)} />
         </div>
       )}
 

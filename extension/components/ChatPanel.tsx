@@ -408,43 +408,6 @@ export default function ChatPanel({
         <span className="text-[11px] font-semibold tracking-widest uppercase text-gray-500 dark:text-gray-400">Chat</span>
         <div className="flex items-center gap-1.5">
           {headerControls}
-          {videoId && (
-            <button
-              onClick={fetchSuggestions}
-              disabled={loadingSuggestions}
-              className="text-[11px] px-2.5 py-1 rounded-full border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:border-blue-400 hover:text-blue-600 dark:hover:text-blue-400 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-              title="Suggest questions"
-            >
-              {loadingSuggestions ? "…" : "Suggest"}
-            </button>
-          )}
-          <button
-            onClick={clearChat}
-            disabled={messages.length === 0}
-            className="text-[11px] px-2.5 py-1 rounded-full border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:border-red-400 hover:text-red-500 dark:hover:text-red-400 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-            title="Clear all messages"
-          >
-            Clear
-          </button>
-          <button
-            onClick={() => setVideoOnly((v) => !v)}
-            disabled={!hasTranscript}
-            title={
-              !hasTranscript
-                ? "No transcript available"
-                : videoOnly
-                ? "Answers draw only from the video"
-                : "Answers may use general knowledge"
-            }
-            className="flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed group"
-          >
-            <span className={`text-[11px] transition-colors ${videoOnly ? "text-gray-700 dark:text-gray-200" : "text-gray-400 dark:text-gray-500"}`}>
-              Video only
-            </span>
-            <div className={`relative w-7 h-4 rounded-full transition-colors ${videoOnly ? "bg-blue-600" : "bg-gray-200 dark:bg-gray-700 group-hover:bg-gray-300 dark:group-hover:bg-gray-600"}`}>
-              <div className={`absolute top-0.5 w-3 h-3 rounded-full bg-white shadow-sm transition-transform ${videoOnly ? "translate-x-3.5" : "translate-x-0.5"}`} />
-            </div>
-          </button>
         </div>
       </div>
 
@@ -603,6 +566,54 @@ export default function ChatPanel({
           <p className="text-[11px] text-gray-400 dark:text-gray-500 text-center animate-pulse tracking-wide">
             Generating suggestions…
           </p>
+        </div>
+      )}
+
+      {/* Action strip — chat controls */}
+      {videoId && (
+        <div className="flex items-center gap-2 px-3 h-8 border-t border-gray-200 dark:border-gray-800 shrink-0">
+          {/* Video-only toggle — flex-1 so label compresses first at narrow widths */}
+          <button
+            onClick={() => setVideoOnly((v) => !v)}
+            disabled={!hasTranscript}
+            title={
+              !hasTranscript
+                ? "No transcript available"
+                : videoOnly
+                ? "Answers draw only from the video"
+                : "Answers may use general knowledge"
+            }
+            className="flex items-center gap-1.5 flex-1 min-w-0 disabled:opacity-40 disabled:cursor-not-allowed group"
+          >
+            <div className={`relative w-7 h-4 rounded-full shrink-0 transition-colors ${videoOnly ? "bg-blue-600" : "bg-gray-200 dark:bg-gray-700 group-hover:bg-gray-300 dark:group-hover:bg-gray-600"}`}>
+              <div className={`absolute top-0.5 w-3 h-3 rounded-full bg-white shadow-sm transition-transform ${videoOnly ? "translate-x-3.5" : "translate-x-0.5"}`} />
+            </div>
+            <span className={`text-[11px] truncate transition-colors ${videoOnly ? "text-gray-700 dark:text-gray-200" : "text-gray-400 dark:text-gray-500"}`}>
+              Video only
+            </span>
+          </button>
+
+          {/* Suggest */}
+          <button
+            onClick={fetchSuggestions}
+            disabled={loadingSuggestions}
+            className="shrink-0 text-[11px] px-2.5 py-1 rounded-full border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:border-blue-400 hover:text-blue-600 dark:hover:text-blue-400 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            title="Suggest questions"
+          >
+            {loadingSuggestions ? "…" : "Suggest"}
+          </button>
+
+          <div className="w-px h-4 bg-gray-200 dark:bg-gray-700 shrink-0" />
+
+          {/* Clear */}
+          <button
+            onClick={clearChat}
+            disabled={messages.length === 0}
+            className="shrink-0 text-[11px] px-2.5 py-1 rounded-full border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:border-red-400 hover:text-red-500 dark:hover:text-red-400 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            title="Clear all messages"
+          >
+            Clear
+          </button>
         </div>
       )}
 

@@ -119,7 +119,7 @@ const NotebookPanel = forwardRef<NotebookHandle, Props>(function NotebookPanel({
 
       {/* Toolbar */}
       {editor && (
-        <div className="flex items-center gap-0 px-2 h-9 border-b border-gray-200 dark:border-gray-800 shrink-0">
+        <div className="flex items-center gap-0 px-2 h-9 border-b border-gray-200 dark:border-gray-800 shrink-0 overflow-x-auto">
           <ToolbarButton onClick={() => editor.chain().focus().toggleBold().run()} active={editor.isActive("bold")} title="Bold">
             <IconBold />
           </ToolbarButton>

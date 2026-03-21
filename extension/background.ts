@@ -162,6 +162,7 @@ async function handleChat(payload: {
         "x-api-key": apiKey,
         "anthropic-version": "2023-06-01",
         "anthropic-beta": "prompt-caching-2024-07-31",
+        "anthropic-dangerous-direct-browser-access": "true",
       },
       body: JSON.stringify({
         model: "claude-sonnet-4-6",
@@ -178,13 +179,15 @@ async function handleChat(payload: {
       const errorData = await response.json().catch(() => ({}));
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const errMsg = (errorData as any)?.error?.message ?? `HTTP ${response.status}`;
-      let userError = "Something went wrong with the AI. Please try again.";
-      if (response.status === 401) userError = "Invalid API key. Check your key in Settings.";
+      let userError = `API error ${response.status}: ${errMsg}`;
+      if (response.status === 401 && !errMsg.toLowerCase().includes("cors") && !errMsg.toLowerCase().includes("browser")) {
+        userError = "Invalid API key. Check your key in Settings.";
+      }
       else if (response.status === 402 || (response.status === 400 && errMsg.toLowerCase().includes("credit"))) {
         userError = "Credit balance too low. Top up your Anthropic account.";
       } else if (response.status === 429) userError = "Rate limited. Please wait a moment.";
       else if (response.status === 529) userError = "Anthropic API overloaded. Try again soon.";
-      console.log(`[chat] ERROR streamId=${streamId} status=${response.status} → "${userError}"`);
+      console.log(`[chat] ERROR streamId=${streamId} status=${response.status} errMsg="${errMsg}" → "${userError}"`);
       chrome.runtime.sendMessage({ type: "CHAT_ERROR", streamId, error: userError }).catch(() => {});
       return;
     }
@@ -313,6 +316,7 @@ async function handleSuggest(payload: {
         "x-api-key": apiKey,
         "anthropic-version": "2023-06-01",
         "anthropic-beta": "prompt-caching-2024-07-31",
+        "anthropic-dangerous-direct-browser-access": "true",
       },
       body: JSON.stringify({
         model: "claude-sonnet-4-6",
@@ -448,6 +452,28 @@ async function extractFromTab(tabId: number) {
           tracks[0] ?? null;
       }
 
+      // Extract video title from the player — more reliable than the tab title,
+      // which can lag behind on SPA navigation when the service worker runs early.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      let extractedTitle: string | null = null;
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const player = document.getElementById("movie_player") as any;
+        if (player?.getPlayerResponse) {
+          const r = player.getPlayerResponse();
+          if (r?.videoDetails?.videoId === vid) {
+            extractedTitle = r.videoDetails.title ?? null;
+          }
+        }
+      } catch { /* ignore */ }
+      if (!extractedTitle) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const ipr = (window as any).ytInitialPlayerResponse;
+        if (ipr?.videoDetails?.videoId === vid) {
+          extractedTitle = ipr.videoDetails.title ?? null;
+        }
+      }
+
       // Strategy 1: public unsigned timedtext URL — works for most videos without
       // signed parameters, fetched in MAIN world so session cookies are included.
       for (const kind of ["", "asr"]) {
@@ -459,7 +485,7 @@ async function extractFromTab(tabId: number) {
         if (kind) u.searchParams.set("kind", kind);
         const text = await fetchCaption(u.toString());
         debug.push({ strategy: stratName, tried: true, success: text.length > 10, len: text.length });
-        if (text.length > 10) return { text, source: stratName, debug };
+        if (text.length > 10) return { text, source: stratName, debug, title: extractedTitle };
       }
 
       // Strategy 2: signed baseUrl from live player element (post-SPA-nav safe)
@@ -476,11 +502,11 @@ async function extractFromTab(tabId: number) {
               u.searchParams.set("fmt", "json3");
               const text = await fetchCaption(u.toString());
               debug.push({ strategy: "player_element", tried: true, success: text.length > 10, len: text.length });
-              if (text.length > 10) return { text, source: "player_element", debug };
+              if (text.length > 10) return { text, source: "player_element", debug, title: extractedTitle };
               // Also try raw URL without fmt override
               const text2 = await fetchCaption(track.baseUrl);
               debug.push({ strategy: "player_element_raw", tried: true, success: text2.length > 10, len: text2.length });
-              if (text2.length > 10) return { text: text2, source: "player_element_raw", debug };
+              if (text2.length > 10) return { text: text2, source: "player_element_raw", debug, title: extractedTitle };
             } else {
               debug.push({ strategy: "player_element", tried: true, success: false, len: 0 });
             }
@@ -503,7 +529,7 @@ async function extractFromTab(tabId: number) {
           u.searchParams.set("fmt", "json3");
           const text = await fetchCaption(u.toString());
           debug.push({ strategy: "ipr", tried: true, success: text.length > 10, len: text.length });
-          if (text.length > 10) return { text, source: "ipr", debug };
+          if (text.length > 10) return { text, source: "ipr", debug, title: extractedTitle };
         } else {
           debug.push({ strategy: "ipr", tried: true, success: false, len: 0 });
         }
@@ -538,7 +564,7 @@ async function extractFromTab(tabId: number) {
               u.searchParams.set("fmt", "json3");
               const text = await fetchCaption(u.toString());
               debug.push({ strategy: "innertube", tried: true, success: text.length > 10, len: text.length });
-              if (text.length > 10) return { text, source: "innertube", debug };
+              if (text.length > 10) return { text, source: "innertube", debug, title: extractedTitle };
             } else {
               debug.push({ strategy: "innertube", tried: true, success: false, len: 0 });
             }
@@ -552,7 +578,7 @@ async function extractFromTab(tabId: number) {
         debug.push({ strategy: "innertube", tried: true, success: false, len: 0 });
       }
 
-      return { text: "", source: "none", debug };
+      return { text: "", source: "none", debug, title: extractedTitle };
     },
     args: [videoId],
   });
@@ -564,6 +590,13 @@ async function extractFromTab(tabId: number) {
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const r = results?.[0]?.result as any;
+
+  // Prefer the title extracted from the player in MAIN world — it's always up-to-date
+  // after SPA navigation. Fall back to the tab title captured at function start.
+  if (r?.title) {
+    videoTitle = r.title;
+    console.log(`[extractFromTab] title from player: "${videoTitle}"`);
+  }
 
   // Log per-strategy debug info from the injected script
   if (r?.debug) {

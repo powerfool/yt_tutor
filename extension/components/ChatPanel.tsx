@@ -101,37 +101,55 @@ export default function ChatPanel({
     });
   }, [videoId]);
 
-  // Post "Started watching" pill on genuine navigation
+  // Post or update the "Started watching" pill.
+  // Fires on genuine navigation AND when videoTitle corrects itself after a stale
+  // tab-title was used (SPA navigation lag). In both cases we want the pill to
+  // show the definitive title.
   useEffect(() => {
     if (!videoId || !messagesLoaded || loadingMessagesRef.current) return;
     const prevId = prevVideoIdRef.current;
-    if (videoId === prevId) return;
-    prevVideoIdRef.current = videoId;
+    const isNewVideo = videoId !== prevId;
 
-    setSuggestions(null);
-
-    const msgs = allMessagesRef.current;
-    const hasConvo = msgs.some(
-      (m) => (m.role === "user" || m.role === "assistant") && m.videoId === videoId
-    );
-    setChatStarted(hasConvo);
-
-    // On initial mount (prevId === null), only post if pill doesn't exist yet
-    if (prevId === null) {
-      const alreadyStarted = msgs.some(
-        (m) => m.role === "system" && m.videoId === videoId
+    if (isNewVideo) {
+      prevVideoIdRef.current = videoId;
+      setSuggestions(null);
+      const hasConvo = allMessagesRef.current.some(
+        (m) => (m.role === "user" || m.role === "assistant") && m.videoId === videoId
       );
-      if (alreadyStarted) return;
+      setChatStarted(hasConvo);
     }
 
-    const content = `Started watching: ${videoTitle ?? videoId}`;
+    // Find the most-recent pill for this video (may have been loaded from storage).
+    const msgs = allMessagesRef.current;
+    const existingPillIdx = msgs.reduceRight(
+      (found, m, i) => (found === -1 && m.role === "system" && m.videoId === videoId ? i : found),
+      -1
+    );
+
+    const newContent = `Started watching: ${videoTitle ?? videoId}`;
+
+    if (existingPillIdx !== -1) {
+      // Pill already exists — update its text if the title has changed (e.g. stale
+      // tab title was later corrected by the player-response extraction).
+      if (msgs[existingPillIdx].content === newContent) return;
+      const updated = [...msgs];
+      updated[existingPillIdx] = { ...updated[existingPillIdx], content: newContent };
+      setMessages(updated);
+      allMessagesRef.current = updated;
+      saveMessages(videoId, updated);
+      return;
+    }
+
+    // No pill yet. Only create one on genuine navigation (not a title-only update).
+    if (!isNewVideo) return;
+
     const pill: Message = {
       id: crypto.randomUUID(),
       role: "system",
-      content,
+      content: newContent,
       videoId,
     };
-    const updated = [...allMessagesRef.current, pill];
+    const updated = [...msgs, pill];
     setMessages(updated);
     allMessagesRef.current = updated;
     saveMessages(videoId, updated);
@@ -267,9 +285,26 @@ export default function ChatPanel({
   }
 
   function buildHistory(): HistoryMessage[] {
-    return messages
-      .filter((m) => m.role === "user" || m.role === "assistant")
-      .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
+    const uaMessages = messages.filter((m) => m.role === "user" || m.role === "assistant");
+    // Only include complete user/assistant pairs. A trailing user message without
+    // an assistant response (e.g. from a previous failed request) would cause the
+    // Anthropic API to reject the next request with a consecutive-user-messages error.
+    const result: HistoryMessage[] = [];
+    let i = 0;
+    while (i < uaMessages.length) {
+      if (
+        uaMessages[i].role === "user" &&
+        i + 1 < uaMessages.length &&
+        uaMessages[i + 1].role === "assistant"
+      ) {
+        result.push({ role: "user", content: uaMessages[i].content });
+        result.push({ role: "assistant", content: uaMessages[i + 1].content });
+        i += 2;
+      } else {
+        i++;
+      }
+    }
+    return result;
   }
 
   async function fetchSuggestions() {

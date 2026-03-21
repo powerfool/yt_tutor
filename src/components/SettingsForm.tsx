@@ -355,7 +355,6 @@ function ApiKeysSection({
             <>
               Required for all AI features. Get yours at{" "}
               <code className="font-mono text-[11px] bg-gray-100 dark:bg-gray-800 px-1 py-0.5 rounded">console.anthropic.com → API Keys</code>
-              . Falls back to the <Mono>ANTHROPIC_API_KEY</Mono> env var if blank.
             </>
           }
           value={form.anthropicApiKey}
@@ -378,7 +377,6 @@ function ApiKeysSection({
             <>
               Only used for fetching video titles. Get yours at{" "}
               <code className="font-mono text-[11px] bg-gray-100 dark:bg-gray-800 px-1 py-0.5 rounded">console.cloud.google.com</code>
-              . Falls back to <Mono>YOUTUBE_API_KEY</Mono> env var if blank.
             </>
           }
           value={form.youtubeApiKey}

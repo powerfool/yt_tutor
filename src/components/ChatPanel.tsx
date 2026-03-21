@@ -33,7 +33,11 @@ type Props = {
 export default function ChatPanel({ projectId, videoId, videoTitle, transcript, playerRef, videoLoading = false, onCopyToNotebook, onCopyMarkdownToNotebook, onChaptersGenerated, chapters }: Props) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
-  const [videoOnly, setVideoOnly] = useState(true);
+  const [videoOnly, setVideoOnly] = useState(() => {
+    if (typeof window === "undefined") return true;
+    const saved = localStorage.getItem("videoOnly");
+    return saved !== null ? saved === "true" : true;
+  });
   const [showKeyBanner, setShowKeyBanner] = useState(false);
   const [streaming, setStreaming] = useState(false);
   const [selectionPopup, setSelectionPopup] = useState<SelectionPopup | null>(null);
@@ -339,9 +343,16 @@ export default function ChatPanel({ projectId, videoId, videoTitle, transcript, 
             Clear
           </button>
           <button
-            onClick={() => setVideoOnly((v) => !v)}
+            onClick={() => setVideoOnly((v) => {
+              const next = !v;
+              localStorage.setItem("videoOnly", String(next));
+              return next;
+            })}
             disabled={!videoId}
-            title={videoOnly ? "Answers draw only from the video (no outside knowledge)" : "Answers may use general knowledge in addition to the video"}
+            title={videoOnly
+              ? "Claude only answers based on what's said in the video. It won't use any outside knowledge."
+              : "Claude can use its general knowledge in addition to what's said in the video."
+            }
             className="flex items-center gap-1.5 min-w-0 disabled:opacity-40 disabled:cursor-not-allowed group"
           >
             <div className={`relative w-7 h-4 rounded-full shrink-0 transition-colors ${videoOnly ? "bg-blue-600" : "bg-gray-200 dark:bg-gray-700 group-hover:bg-gray-300 dark:group-hover:bg-gray-600"}`}>
@@ -351,7 +362,7 @@ export default function ChatPanel({ projectId, videoId, videoTitle, transcript, 
               Video only
             </span>
             <span className={`text-[10px] truncate transition-colors ${videoOnly ? "text-blue-500 dark:text-blue-400" : "text-gray-400 dark:text-gray-500"}`}>
-              {videoOnly ? "· transcript only" : "· uses outside knowledge"}
+              {videoOnly ? "· answers from the video transcript" : "· may draw on outside knowledge"}
             </span>
           </button>
         </div>

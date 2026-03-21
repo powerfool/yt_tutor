@@ -49,6 +49,7 @@ export default function ChatPanel({
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [videoOnly, setVideoOnly] = useState(true);
+  const [videoOnlyLoaded, setVideoOnlyLoaded] = useState(false);
   const [showKeyBanner, setShowKeyBanner] = useState(false);
   const [streaming, setStreaming] = useState(false);
   const [selectionPopup, setSelectionPopup] = useState<SelectionPopup | null>(null);
@@ -66,6 +67,16 @@ export default function ChatPanel({
   // Prevents the pill effect from firing in the same render cycle as the load start,
   // even when messagesLoaded is still true from the previous video.
   const loadingMessagesRef = useRef(false);
+
+  // Load persisted videoOnly preference
+  useEffect(() => {
+    chrome.storage.local.get("videoOnly", (result) => {
+      if (typeof result.videoOnly === "boolean") {
+        setVideoOnly(result.videoOnly);
+      }
+      setVideoOnlyLoaded(true);
+    });
+  }, []);
 
   // Check API key on mount
   useEffect(() => {
@@ -574,14 +585,18 @@ export default function ChatPanel({
         <div className="flex items-center gap-2 px-3 h-8 border-t border-gray-200 dark:border-gray-800 shrink-0">
           {/* Video-only toggle — flex-1 so label compresses first at narrow widths */}
           <button
-            onClick={() => setVideoOnly((v) => !v)}
+            onClick={() => setVideoOnly((v) => {
+              const next = !v;
+              chrome.storage.local.set({ videoOnly: next });
+              return next;
+            })}
             disabled={!hasTranscript}
             title={
               !hasTranscript
                 ? "No transcript available"
                 : videoOnly
-                ? "Answers draw only from the video"
-                : "Answers may use general knowledge"
+                ? "Claude only answers based on what's said in the video. It won't use any outside knowledge."
+                : "Claude can use its general knowledge in addition to what's said in the video."
             }
             className="flex items-center gap-1.5 flex-1 min-w-0 disabled:opacity-40 disabled:cursor-not-allowed group"
           >
@@ -592,7 +607,7 @@ export default function ChatPanel({
               Video only
             </span>
             <span className={`text-[10px] truncate transition-colors ${videoOnly ? "text-blue-500 dark:text-blue-400" : "text-gray-400 dark:text-gray-500"}`}>
-              {videoOnly ? "· transcript only" : "· uses outside knowledge"}
+              {videoOnly ? "· answers from the video transcript" : "· may draw on outside knowledge"}
             </span>
           </button>
 

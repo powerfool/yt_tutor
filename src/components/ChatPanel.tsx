@@ -80,9 +80,7 @@ export default function ChatPanel({ projectId, videoId, videoTitle, transcript, 
     setSuggestions(null);
 
     const msgs = allMessagesRef.current;
-    const hasConvo = msgs.some(
-      (m) => (m.role === "user" || m.role === "assistant") && m.videoId === videoId
-    );
+    const hasConvo = msgs.some((m) => m.videoId === videoId);
 
     // Restore or reset chat state based on whether a conversation exists
     setChatStarted(hasConvo);
@@ -189,6 +187,7 @@ export default function ChatPanel({ projectId, videoId, videoTitle, transcript, 
   }
 
   async function fetchSuggestions() {
+    setChatStarted(true);
     setLoadingSuggestions(true);
     try {
       const res = await fetch("/api/chat/suggest", {

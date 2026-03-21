@@ -3,12 +3,23 @@ console.log("[background] service worker started");
 
 type TranscriptSegment = { offset: number; text: string; duration?: number };
 
-type VideoState = {
+type PageMode = "youtube" | "webpage" | "none";
+
+type WebpageContext = {
+  url: string;
+  title: string;
+  markdownContent: string | null;
+};
+
+type AppState = {
   videoId: string | null;
   videoTitle: string | null;
   transcript: TranscriptSegment[] | null;
   hasTranscript: boolean;
   isYoutube: boolean;
+  mode: PageMode;
+  webpageContext: WebpageContext | null;
+  pendingPrefill: string | null; // text to prefill when sidebar next opens
 };
 
 type HistoryMessage = { role: "user" | "assistant"; content: string };
@@ -25,15 +36,28 @@ const PROMPTS = {
     "The learner just opened this video. Based on the title and content, generate 4 varied questions that will spark curiosity and help them engage deeply with the material. Mix different angles: core concepts, implications, comparisons, and \"why does this matter?\" questions. Return ONLY a JSON array of 4 strings, no explanation, no markdown fences.",
   suggestHistory:
     "The learner has been having a conversation about this video. Generate 4 natural follow-up questions based on what they've discussed. Avoid questions already answered. Keep questions concise and specific.\nReturn ONLY a JSON array of 4 strings, no explanation, no markdown fences.",
+  webpageSystem:
+    "You are a helpful research assistant. The user is reading a webpage and has questions about its content.",
+  webpagePageOnly:
+    "Answer only based on the page content provided. Do not draw on outside knowledge.",
+  webpageGeneral:
+    "Use the provided page content and your general knowledge to give the most helpful answer.",
+  webpageSuggestFresh:
+    "Based on the page title and content, generate 4 varied questions to spark curiosity. Return ONLY a JSON array of 4 strings.",
+  webpageSuggestHistory:
+    "Generate 4 natural follow-up questions based on the conversation so far. Return ONLY a JSON array of 4 strings.",
 };
 
 // In-memory state (service worker may restart; critical state is backed by storage)
-let currentState: VideoState = {
+let currentState: AppState = {
   videoId: null,
   videoTitle: null,
   transcript: null,
   hasTranscript: false,
   isYoutube: false,
+  mode: "none",
+  webpageContext: null,
+  pendingPrefill: null,
 };
 
 // Per-tab extraction sequence counter. Incremented each time extractFromTab
@@ -108,6 +132,44 @@ function buildSystemBlocks(
   ];
 }
 
+function buildWebpageSystemBlocks(context: WebpageContext, pageOnly: boolean) {
+  const contentSection = context.markdownContent
+    ? `\n\nPAGE CONTENT:\n${context.markdownContent}`
+    : "\n\n(No content could be extracted from this page.)";
+
+  const block1 =
+    `${PROMPTS.webpageSystem}\n` +
+    `Page title: "${context.title}"\n` +
+    `URL: ${context.url}` +
+    contentSection;
+
+  const block2 = pageOnly ? PROMPTS.webpagePageOnly : PROMPTS.webpageGeneral;
+
+  return [
+    { type: "text", text: block1, cache_control: { type: "ephemeral" } },
+    { type: "text", text: block2 },
+  ];
+}
+
+// ── Lazy content extraction helper ───────────────────────────────────────────
+
+async function ensureWebpageContent(ctx: WebpageContext): Promise<WebpageContext> {
+  if (ctx.markdownContent !== null) return ctx;
+  try {
+    const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+    const tabId = tabs[0]?.id;
+    if (tabId) {
+      const result = await chrome.tabs.sendMessage(tabId, { type: "EXTRACT_PAGE_CONTENT" });
+      const markdownContent = result?.markdownContent ?? null;
+      const updated = { ...ctx, markdownContent };
+      // Cache in-memory (never persisted — always fresh on re-visit)
+      currentState.webpageContext = updated;
+      return updated;
+    }
+  } catch { /* tab may not be available */ }
+  return ctx;
+}
+
 // ── Chat streaming ───────────────────────────────────────────────────────────
 
 async function handleChat(payload: {
@@ -117,10 +179,15 @@ async function handleChat(payload: {
   videoId: string | null;
   currentTimeSec: number;
   streamId: string;
+  mode?: PageMode;
+  webpageContext?: WebpageContext | null;
 }) {
-  const { message, history, videoOnly, videoId, currentTimeSec, streamId } = payload;
+  const {
+    message, history, videoOnly, videoId, currentTimeSec, streamId,
+    mode = "youtube", webpageContext,
+  } = payload;
 
-  console.log(`[chat] START streamId=${streamId} videoId=${videoId} history=${history.length}msgs videoOnly=${videoOnly}`);
+  console.log(`[chat] START streamId=${streamId} mode=${mode} videoId=${videoId} history=${history.length}msgs videoOnly=${videoOnly}`);
 
   const stored = await chrome.storage.local.get("anthropicApiKey");
   const apiKey = stored.anthropicApiKey as string | undefined;
@@ -136,22 +203,35 @@ async function handleChat(payload: {
     return;
   }
 
-  // Use stored transcript for this video
-  let transcript: TranscriptSegment[] | null = null;
-  let videoTitle: string | null = null;
+  // Build system blocks based on mode
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let systemBlocks: any[];
 
-  if (videoId) {
-    const key = `transcript_${videoId}`;
-    const titleKey = `title_${videoId}`;
-    const stored2 = await chrome.storage.local.get([key, titleKey]);
-    const raw = stored2[key];
-    transcript = raw ? (raw as TranscriptSegment[]) : null;
-    videoTitle = stored2[titleKey] as string | null ?? null;
+  if (mode === "webpage") {
+    let ctx = webpageContext ?? currentState.webpageContext;
+    if (ctx) {
+      ctx = await ensureWebpageContent(ctx);
+      systemBlocks = buildWebpageSystemBlocks(ctx, videoOnly);
+    } else {
+      systemBlocks = [{ type: "text", text: PROMPTS.webpageSystem }];
+    }
+  } else {
+    // YouTube mode — use stored transcript
+    let transcript: TranscriptSegment[] | null = null;
+    let videoTitle: string | null = null;
+
+    if (videoId) {
+      const key = `transcript_${videoId}`;
+      const titleKey = `title_${videoId}`;
+      const stored2 = await chrome.storage.local.get([key, titleKey]);
+      const raw = stored2[key];
+      transcript = raw ? (raw as TranscriptSegment[]) : null;
+      videoTitle = stored2[titleKey] as string | null ?? null;
+    }
+
+    console.log(`[chat] transcript: ${transcript ? `${transcript.length} segments (loaded from storage)` : "none"}`);
+    systemBlocks = buildSystemBlocks(transcript, videoTitle, videoOnly, currentTimeSec);
   }
-
-  console.log(`[chat] transcript: ${transcript ? `${transcript.length} segments (loaded from storage)` : "none"}`);
-
-  const systemBlocks = buildSystemBlocks(transcript, videoTitle, videoOnly, currentTimeSec);
 
   try {
     console.log("[chat] calling Anthropic API...");
@@ -255,11 +335,13 @@ async function handleSuggest(payload: {
   videoId: string | null;
   history: HistoryMessage[];
   requestId: string;
+  mode?: PageMode;
+  webpageContext?: WebpageContext | null;
 }) {
-  const { videoId, history, requestId } = payload;
+  const { videoId, history, requestId, mode = "youtube", webpageContext } = payload;
 
   const hasPrior = history.filter((m) => m.role === "user" || m.role === "assistant").length > 0;
-  console.log(`[suggest] START requestId=${requestId} videoId=${videoId} history=${history.length}msgs hasPrior=${hasPrior}`);
+  console.log(`[suggest] START requestId=${requestId} mode=${mode} videoId=${videoId} history=${history.length}msgs hasPrior=${hasPrior}`);
 
   const stored = await chrome.storage.local.get("anthropicApiKey");
   const apiKey = stored.anthropicApiKey as string | undefined;
@@ -267,45 +349,68 @@ async function handleSuggest(payload: {
   console.log(`[suggest] API key: ${apiKey ? "present" : "missing"}`);
 
   if (!apiKey) {
-    chrome.runtime.sendMessage({
-      type: "SUGGEST_RESULT",
-      requestId,
-      suggestions: ["What is this video about?", "Summarize the key points.", "What are the main takeaways?", "Explain the core concepts."],
-    }).catch(() => {});
+    const defaults = mode === "webpage"
+      ? ["What is this page about?", "Summarize the key points.", "What are the main takeaways?", "What questions does this raise?"]
+      : ["What is this video about?", "Summarize the key points.", "What are the main takeaways?", "Explain the core concepts."];
+    chrome.runtime.sendMessage({ type: "SUGGEST_RESULT", requestId, suggestions: defaults }).catch(() => {});
     return;
   }
 
-  let transcript: TranscriptSegment[] | null = null;
-  let videoTitle: string | null = null;
-
-  if (videoId) {
-    const key = `transcript_${videoId}`;
-    const titleKey = `title_${videoId}`;
-    const stored2 = await chrome.storage.local.get([key, titleKey]);
-    const raw = stored2[key];
-    transcript = raw ? (raw as TranscriptSegment[]) : null;
-    videoTitle = stored2[titleKey] as string | null ?? null;
-  }
-
-  let block1: string;
-  if (transcript && transcript.length > 0) {
-    const transcriptText = transcript.map((s) => `${formatMs(s.offset)} ${s.text}`).join("\n");
-    block1 = `${PROMPTS.system}\nVideo title: "${videoTitle ?? "Unknown"}"\n\nFULL TRANSCRIPT:\n${transcriptText}`;
-  } else if (videoTitle) {
-    block1 = `${PROMPTS.system}\nVideo title: "${videoTitle}"\n(No transcript available.)`;
-  } else {
-    block1 = PROMPTS.system;
-  }
-
   const historyMessages = history.filter((m) => m.role === "user" || m.role === "assistant");
-
   const historyContext = hasPrior
-    ? `\n\nConversation so far:\n${historyMessages.map((m) => `${m.role === "user" ? "Learner" : "Assistant"}: ${m.content}`).join("\n")}`
+    ? `\n\nConversation so far:\n${historyMessages.map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`).join("\n")}`
     : "";
 
-  const userPrompt = hasPrior
-    ? PROMPTS.suggestHistory + historyContext
-    : PROMPTS.suggestFresh;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let systemBlock: any;
+  let userPrompt: string;
+
+  if (mode === "webpage") {
+    let ctx = webpageContext ?? currentState.webpageContext;
+    if (ctx) {
+      ctx = await ensureWebpageContent(ctx);
+      const contentSection = ctx.markdownContent
+        ? `\n\nPAGE CONTENT:\n${ctx.markdownContent}`
+        : "\n\n(No content could be extracted from this page.)";
+      systemBlock = {
+        type: "text",
+        text: `${PROMPTS.webpageSystem}\nPage title: "${ctx.title}"\nURL: ${ctx.url}${contentSection}`,
+        cache_control: { type: "ephemeral" },
+      };
+    } else {
+      systemBlock = { type: "text", text: PROMPTS.webpageSystem, cache_control: { type: "ephemeral" } };
+    }
+    userPrompt = hasPrior
+      ? PROMPTS.webpageSuggestHistory + historyContext
+      : PROMPTS.webpageSuggestFresh;
+  } else {
+    // YouTube mode
+    let transcript: TranscriptSegment[] | null = null;
+    let videoTitle: string | null = null;
+
+    if (videoId) {
+      const key = `transcript_${videoId}`;
+      const titleKey = `title_${videoId}`;
+      const stored2 = await chrome.storage.local.get([key, titleKey]);
+      const raw = stored2[key];
+      transcript = raw ? (raw as TranscriptSegment[]) : null;
+      videoTitle = stored2[titleKey] as string | null ?? null;
+    }
+
+    let block1: string;
+    if (transcript && transcript.length > 0) {
+      const transcriptText = transcript.map((s) => `${formatMs(s.offset)} ${s.text}`).join("\n");
+      block1 = `${PROMPTS.system}\nVideo title: "${videoTitle ?? "Unknown"}"\n\nFULL TRANSCRIPT:\n${transcriptText}`;
+    } else if (videoTitle) {
+      block1 = `${PROMPTS.system}\nVideo title: "${videoTitle}"\n(No transcript available.)`;
+    } else {
+      block1 = PROMPTS.system;
+    }
+    systemBlock = { type: "text", text: block1, cache_control: { type: "ephemeral" } };
+    userPrompt = hasPrior
+      ? PROMPTS.suggestHistory + historyContext
+      : PROMPTS.suggestFresh;
+  }
 
   try {
     console.log("[suggest] calling Anthropic API...");
@@ -321,9 +426,7 @@ async function handleSuggest(payload: {
       body: JSON.stringify({
         model: "claude-sonnet-4-6",
         max_tokens: 300,
-        system: [
-          { type: "text", text: block1, cache_control: { type: "ephemeral" } },
-        ],
+        system: [systemBlock],
         messages: [{ role: "user", content: userPrompt }],
       }),
     });
@@ -343,20 +446,24 @@ async function handleSuggest(payload: {
     chrome.runtime.sendMessage({ type: "SUGGEST_RESULT", requestId, suggestions: trimmed }).catch(() => {});
   } catch (err) {
     console.log(`[suggest] ERROR requestId=${requestId} → fallback suggestions used (${err instanceof Error ? err.message : err})`);
-    chrome.runtime.sendMessage({
-      type: "SUGGEST_RESULT",
-      requestId,
-      suggestions: ["What is this video about?", "Summarize the key points.", "What are the main takeaways?", "Explain the core concepts."],
-    }).catch(() => {});
+    const fallback = mode === "webpage"
+      ? ["What is this page about?", "Summarize the key points.", "What are the main takeaways?", "What questions does this raise?"]
+      : ["What is this video about?", "Summarize the key points.", "What are the main takeaways?", "Explain the core concepts."];
+    chrome.runtime.sendMessage({ type: "SUGGEST_RESULT", requestId, suggestions: fallback }).catch(() => {});
   }
 }
 
 // ── Restore state on service worker restart ──────────────────────────────────
 
 async function restoreState() {
-  const stored = await chrome.storage.local.get(["currentVideoId", "currentVideoTitle", "currentHasTranscript"]);
+  const stored = await chrome.storage.local.get([
+    "currentVideoId", "currentVideoTitle", "currentHasTranscript",
+    "currentMode", "currentWebpageUrl", "currentWebpageTitle",
+  ]);
   const videoId = stored.currentVideoId as string | null ?? null;
-  if (videoId) {
+  const mode = (stored.currentMode as PageMode | undefined) ?? (videoId ? "youtube" : "none");
+
+  if (mode === "youtube" && videoId) {
     const transcriptKey = `transcript_${videoId}`;
     const stored2 = await chrome.storage.local.get(transcriptKey);
     const transcript = stored2[transcriptKey] as TranscriptSegment[] | null ?? null;
@@ -366,8 +473,25 @@ async function restoreState() {
       transcript,
       hasTranscript: stored.currentHasTranscript as boolean ?? false,
       isYoutube: true,
+      mode: "youtube",
+      webpageContext: null,
+      pendingPrefill: null,
     };
-    console.log(`[restoreState] stored videoId=${videoId} hasTranscript=${currentState.hasTranscript} transcript segments=${transcript?.length ?? 0}`);
+    console.log(`[restoreState] youtube videoId=${videoId} hasTranscript=${currentState.hasTranscript} segments=${transcript?.length ?? 0}`);
+  } else if (mode === "webpage") {
+    const url = stored.currentWebpageUrl as string | null ?? null;
+    const title = stored.currentWebpageTitle as string | null ?? "";
+    currentState = {
+      videoId: null,
+      videoTitle: null,
+      transcript: null,
+      hasTranscript: false,
+      isYoutube: false,
+      mode: "webpage",
+      webpageContext: url ? { url, title, markdownContent: null } : null,
+      pendingPrefill: null,
+    };
+    console.log(`[restoreState] webpage url=${url}`);
   } else {
     console.log("[restoreState] nothing in storage");
   }
@@ -399,8 +523,13 @@ function parseTranscriptText(rawText: string): TranscriptSegment[] {
 
 function broadcastVideoState(videoId: string, videoTitle: string, transcript: TranscriptSegment[] | null, hasTranscript: boolean) {
   console.log(`[broadcastVideoState] videoId=${videoId} title="${videoTitle}" hasTranscript=${hasTranscript} segments=${transcript?.length ?? 0}`);
-  currentState = { videoId, videoTitle, transcript, hasTranscript, isYoutube: true };
-  const payload: Record<string, unknown> = { currentVideoId: videoId, currentVideoTitle: videoTitle, currentHasTranscript: hasTranscript };
+  currentState = { videoId, videoTitle, transcript, hasTranscript, isYoutube: true, mode: "youtube", webpageContext: null, pendingPrefill: null };
+  const payload: Record<string, unknown> = {
+    currentVideoId: videoId,
+    currentVideoTitle: videoTitle,
+    currentHasTranscript: hasTranscript,
+    currentMode: "youtube",
+  };
   if (transcript && hasTranscript) {
     payload[`transcript_${videoId}`] = transcript;
     payload[`title_${videoId}`] = videoTitle;
@@ -644,14 +773,62 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 chrome.runtime.onMessage.addListener((msg: any, sender, sendResponse) => {
   // Content script notifies us when YouTube SPA-navigates to a new video.
-  // The content script can't read ytInitialPlayerResponse (isolated world),
-  // so we use extractFromTab (world:"MAIN") from the background instead.
   if (msg.type === "YOUTUBE_NAVIGATED") {
     const tabId = sender.tab?.id;
     console.log(`[background] YOUTUBE_NAVIGATED tabId=${tabId} → queuing extract in 600ms`);
     if (tabId) {
-      // Delay slightly so YouTube has time to update ytInitialPlayerResponse
       setTimeout(() => extractFromTab(tabId), 600);
+    }
+    sendResponse({ ok: true });
+    return true;
+  }
+
+  // Non-YouTube content script notifies us of page navigation
+  if (msg.type === "WEBPAGE_NAVIGATED") {
+    const { url, title } = msg as { url: string; title: string };
+    console.log(`[background] WEBPAGE_NAVIGATED url=${url} title="${title}"`);
+    // Reset markdownContent on every navigation — always re-extract on next interaction
+    currentState = {
+      ...currentState,
+      videoId: null,
+      videoTitle: null,
+      transcript: null,
+      hasTranscript: false,
+      isYoutube: false,
+      mode: "webpage",
+      webpageContext: { url, title, markdownContent: null },
+    };
+    chrome.storage.local.set({
+      currentMode: "webpage",
+      currentWebpageUrl: url,
+      currentWebpageTitle: title,
+      currentVideoId: null,
+    });
+    chrome.runtime.sendMessage({
+      type: "WEBPAGE_STATE",
+      webpageContext: currentState.webpageContext,
+    }).catch(() => {});
+    sendResponse({ ok: true });
+    return true;
+  }
+
+  // Non-YouTube content script reports a text selection → relay to sidebar (or hold for when it opens)
+  if (msg.type === "WEBPAGE_SELECTION") {
+    const { selectedText } = msg as { selectedText: string };
+    console.log(`[background] WEBPAGE_SELECTION len=${selectedText.length}`);
+    // Store for sidebar that isn't open yet; also broadcast for one that is
+    currentState.pendingPrefill = selectedText;
+    chrome.runtime.sendMessage({ type: "PREFILL_INPUT", selectedText }).catch(() => {});
+    sendResponse({ ok: true });
+    return true;
+  }
+
+  // Content script requests sidebar open (after user clicks "Ask AI" button)
+  if (msg.type === "OPEN_SIDEBAR") {
+    const tabId = sender.tab?.id;
+    console.log(`[background] OPEN_SIDEBAR tabId=${tabId}`);
+    if (tabId) {
+      chrome.sidePanel.open({ tabId }).catch(() => {});
     }
     sendResponse({ ok: true });
     return true;
@@ -667,13 +844,18 @@ chrome.runtime.onMessage.addListener((msg: any, sender, sendResponse) => {
   }
 
   if (msg.type === "GET_STATE") {
-    console.log(`[background] GET_STATE → videoId=${currentState.videoId} hasTranscript=${currentState.hasTranscript}`);
+    console.log(`[background] GET_STATE → mode=${currentState.mode} videoId=${currentState.videoId} hasTranscript=${currentState.hasTranscript}`);
     restorePromise.then(() => {
+      const pendingPrefill = currentState.pendingPrefill;
+      currentState.pendingPrefill = null; // consume once
       sendResponse({
         videoId: currentState.videoId,
         videoTitle: currentState.videoTitle,
         hasTranscript: currentState.hasTranscript,
         isYoutube: currentState.isYoutube,
+        mode: currentState.mode,
+        webpageContext: currentState.webpageContext,
+        pendingPrefill,
       });
     });
     return true; // keep channel open for async response

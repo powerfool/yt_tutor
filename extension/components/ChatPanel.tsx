@@ -1,14 +1,18 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback, useImperativeHandle, forwardRef } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+
+type PageMode = "youtube" | "webpage" | "none";
+
+type WebpageContext = { url: string; title: string; markdownContent: string | null };
 
 type Message = {
   id: string;
   role: "user" | "assistant" | "system";
   content: string;
-  videoId?: string | null;
+  videoId?: string | null; // contextId (videoId for youtube, normalizedUrl for webpage)
 };
 
 type SelectionPopup = { text: string; x: number; y: number };
@@ -16,67 +20,91 @@ type SelectionPopup = { text: string; x: number; y: number };
 type HistoryMessage = { role: "user" | "assistant"; content: string };
 
 type Props = {
-  videoId: string | null;
+  videoId: string | null;       // YouTube video ID (null for webpage mode)
   videoTitle: string | null;
   hasTranscript: boolean;
   onCopyToNotebook?: (text: string) => void;
   onCopyMarkdownToNotebook?: (markdown: string) => void;
   headerControls?: React.ReactNode;
+  mode?: PageMode;
+  webpageContext?: WebpageContext | null;
+  contextId?: string | null;    // stable ID for storage (videoId or normalizedUrl)
 };
 
-const STORAGE_KEY = (videoId: string) => `messages_${videoId}`;
+export type ChatPanelHandle = {
+  prefillQuote: (text: string) => void;
+};
 
-function loadMessages(videoId: string): Promise<Message[]> {
+function storageKey(mode: PageMode, id: string): string {
+  return mode === "youtube" ? `messages_${id}` : `webpage_msgs_${id}`;
+}
+
+function loadMessages(mode: PageMode, id: string): Promise<Message[]> {
+  const key = storageKey(mode, id);
   return new Promise((resolve) => {
-    chrome.storage.local.get(STORAGE_KEY(videoId), (result) => {
-      resolve((result[STORAGE_KEY(videoId)] as Message[]) ?? []);
+    chrome.storage.local.get(key, (result) => {
+      resolve((result[key] as Message[]) ?? []);
     });
   });
 }
 
-function saveMessages(videoId: string, messages: Message[]): void {
-  chrome.storage.local.set({ [STORAGE_KEY(videoId)]: messages });
+function saveMessages(mode: PageMode, id: string, messages: Message[]): void {
+  chrome.storage.local.set({ [storageKey(mode, id)]: messages });
 }
 
-export default function ChatPanel({
+const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel({
   videoId,
   videoTitle,
   hasTranscript,
   onCopyToNotebook,
   onCopyMarkdownToNotebook,
   headerControls,
-}: Props) {
+  mode = "youtube",
+  webpageContext,
+  contextId,
+}: Props, ref) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [videoOnly, setVideoOnly] = useState(true);
-  const [videoOnlyLoaded, setVideoOnlyLoaded] = useState(false);
   const [showKeyBanner, setShowKeyBanner] = useState(false);
   const [streaming, setStreaming] = useState(false);
   const [selectionPopup, setSelectionPopup] = useState<SelectionPopup | null>(null);
-  const [chatStarted, setChatStarted] = useState(false);
   const [suggestions, setSuggestions] = useState<string[] | null>(null);
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
   const [messagesLoaded, setMessagesLoaded] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
-  const prevVideoIdRef = useRef<string | null>(null);
+  const prevContextIdRef = useRef<string | null>(null);
   const messagesRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const allMessagesRef = useRef<Message[]>([]);
   const activeStreamId = useRef<string | null>(null);
-  // Synchronous gate: set to true before async loadMessages, false when done.
-  // Prevents the pill effect from firing in the same render cycle as the load start,
-  // even when messagesLoaded is still true from the previous video.
   const loadingMessagesRef = useRef(false);
 
-  // Load persisted videoOnly preference
+  // Expose prefillQuote via ref
+  useImperativeHandle(ref, () => ({
+    prefillQuote: (text: string) => {
+      const quoted = text
+        .split("\n")
+        .map((line) => `> ${line}`)
+        .join("\n");
+      setInput((prev) => (prev ? `${prev}\n\n${quoted}\n\n` : `${quoted}\n\n`));
+      setTimeout(() => {
+        textareaRef.current?.focus();
+        const len = textareaRef.current?.value.length ?? 0;
+        textareaRef.current?.setSelectionRange(len, len);
+      }, 0);
+    },
+  }));
+
+  // Load persisted videoOnly / pageOnly preference
   useEffect(() => {
-    chrome.storage.local.get("videoOnly", (result) => {
-      if (typeof result.videoOnly === "boolean") {
-        setVideoOnly(result.videoOnly);
+    const prefKey = mode === "webpage" ? "pageOnly" : "videoOnly";
+    chrome.storage.local.get(prefKey, (result) => {
+      if (typeof result[prefKey] === "boolean") {
+        setVideoOnly(result[prefKey] as boolean);
       }
-      setVideoOnlyLoaded(true);
     });
-  }, []);
+  }, [mode]);
 
   // Check API key on mount
   useEffect(() => {
@@ -89,86 +117,80 @@ export default function ChatPanel({
     });
   }, []);
 
-  // Load messages when videoId changes
+  // Load messages when contextId changes
   useEffect(() => {
-    if (!videoId) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (!contextId) {
       setMessages([]);
       allMessagesRef.current = [];
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setMessagesLoaded(false);
       loadingMessagesRef.current = false;
       return;
     }
-    console.log(`[chat-panel] videoId changed → ${videoId}, loading messages`);
-    // Set the ref synchronously — the pill effect (which runs in the same commit)
-    // checks this ref and returns early, preventing it from firing before messages load.
+    console.log(`[chat-panel] contextId changed → ${contextId}, loading messages`);
     loadingMessagesRef.current = true;
     setMessagesLoaded(false);
-    loadMessages(videoId).then((msgs) => {
-      console.log(`[chat-panel] messages loaded: ${msgs.length} msgs for ${videoId}`);
+    loadMessages(mode, contextId).then((msgs) => {
+      console.log(`[chat-panel] messages loaded: ${msgs.length} msgs for ${contextId}`);
       setMessages(msgs);
       allMessagesRef.current = msgs;
       loadingMessagesRef.current = false;
       setMessagesLoaded(true);
     });
-  }, [videoId]);
+  }, [contextId, mode]);
 
-  // Post or update the "Started watching" pill.
-  // Fires on genuine navigation AND when videoTitle corrects itself after a stale
-  // tab-title was used (SPA navigation lag). In both cases we want the pill to
-  // show the definitive title.
+  // Handle new context navigation: reset suggestions
   useEffect(() => {
-    if (!videoId || !messagesLoaded || loadingMessagesRef.current) return;
-    const prevId = prevVideoIdRef.current;
-    const isNewVideo = videoId !== prevId;
+    if (!contextId || !messagesLoaded || loadingMessagesRef.current) return;
+    const prevId = prevContextIdRef.current;
+    const isNewContext = contextId !== prevId;
 
-    if (isNewVideo) {
-      prevVideoIdRef.current = videoId;
-      // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (isNewContext) {
+      prevContextIdRef.current = contextId;
       setSuggestions(null);
-      const hasConvo = allMessagesRef.current.some(
-        (m) => (m.role === "user" || m.role === "assistant") && m.videoId === videoId
-      );
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setChatStarted(hasConvo);
     }
 
-    // Find the most-recent pill for this video (may have been loaded from storage).
+    // Update the existing pill's label if videoTitle changed (YouTube only)
+    if (mode !== "youtube") return;
+
     const msgs = allMessagesRef.current;
     const existingPillIdx = msgs.reduceRight(
-      (found, m, i) => (found === -1 && m.role === "system" && m.videoId === videoId ? i : found),
+      (found, m, i) => (found === -1 && m.role === "system" && m.videoId === contextId ? i : found),
       -1
     );
 
     const newContent = `Started watching: ${videoTitle ?? videoId}`;
-
-    if (existingPillIdx !== -1) {
-      // Pill already exists — update its text if the title has changed (e.g. stale
-      // tab title was later corrected by the player-response extraction).
-      if (msgs[existingPillIdx].content === newContent) return;
+    if (existingPillIdx !== -1 && msgs[existingPillIdx].content !== newContent) {
       const updated = [...msgs];
       updated[existingPillIdx] = { ...updated[existingPillIdx], content: newContent };
       setMessages(updated);
       allMessagesRef.current = updated;
-      saveMessages(videoId, updated);
-      return;
+      if (contextId) saveMessages(mode, contextId, updated);
     }
+  }, [contextId, videoTitle, messagesLoaded, mode, videoId]);
 
-    // No pill yet. Only create one on genuine navigation (not a title-only update).
-    if (!isNewVideo) return;
+  // Create session pill on first interaction (deferred from navigation)
+  function ensureSessionPill() {
+    if (!contextId) return;
+    const hasExistingPill = allMessagesRef.current.some(
+      (m) => m.role === "system" && m.videoId === contextId && !m.content.startsWith("⚠️")
+    );
+    if (hasExistingPill) return;
+
+    const label = mode === "webpage"
+      ? `Browsing: ${webpageContext?.title || webpageContext?.url || "page"}`
+      : `Started watching: ${videoTitle ?? videoId}`;
 
     const pill: Message = {
       id: crypto.randomUUID(),
       role: "system",
-      content: newContent,
-      videoId,
+      content: label,
+      videoId: contextId,
     };
-    const updated = [...msgs, pill];
+    const updated = [...allMessagesRef.current, pill];
     setMessages(updated);
     allMessagesRef.current = updated;
-    saveMessages(videoId, updated);
-  }, [videoId, videoTitle, messagesLoaded]);
+    saveMessages(mode, contextId, updated);
+  }
 
   // Auto-scroll
   useEffect(() => {
@@ -182,7 +204,7 @@ export default function ChatPanel({
     const listener = (msg: any) => {
       if (msg.type === "CHAT_CHUNK" && msg.streamId === activeStreamId.current) {
         if (!firstChunkLogged) {
-          console.log(`[chat-panel] CHAT_CHUNK streamId=${msg.streamId} (first chunk received, streaming active)`);
+          console.log(`[chat-panel] CHAT_CHUNK streamId=${msg.streamId} (first chunk received)`);
           firstChunkLogged = true;
         }
         setMessages((prev) =>
@@ -196,17 +218,15 @@ export default function ChatPanel({
 
       if (msg.type === "CHAT_DONE" && msg.streamId === activeStreamId.current) {
         setStreaming(false);
-        // Persist final assistant message
         const streamId = activeStreamId.current;
         activeStreamId.current = null;
-        if (videoId && streamId) {
+        if (contextId && streamId) {
           setMessages((prev) => {
             const finalMsg = prev.find((m) => m.id === streamId);
-            if (finalMsg && videoId) {
-              const updated = prev;
+            if (finalMsg && contextId) {
               console.log(`[chat-panel] CHAT_DONE streamId=${streamId} finalLen=${finalMsg.content.length} chars`);
-              saveMessages(videoId, updated);
-              allMessagesRef.current = updated;
+              saveMessages(mode, contextId, prev);
+              allMessagesRef.current = prev;
             }
             return prev;
           });
@@ -237,7 +257,7 @@ export default function ChatPanel({
 
     chrome.runtime.onMessage.addListener(listener);
     return () => chrome.runtime.onMessage.removeListener(listener);
-  }, [videoId]);
+  }, [contextId, mode]);
 
   // Selection popup
   const handleMessagesMouseUp = useCallback(() => {
@@ -277,7 +297,6 @@ export default function ChatPanel({
       .map((line) => `> ${line}`)
       .join("\n");
     setInput((prev) => (prev ? `${prev}\n\n${quoted}\n\n` : `${quoted}\n\n`));
-    if (!chatStarted) setChatStarted(true);
     window.getSelection()?.removeAllRanges();
     setSelectionPopup(null);
     setTimeout(() => {
@@ -289,21 +308,17 @@ export default function ChatPanel({
 
   async function clearChat() {
     if (!confirm("Clear all chat messages? This cannot be undone.")) return;
-    if (videoId) {
-      await chrome.storage.local.remove(STORAGE_KEY(videoId));
+    if (contextId) {
+      await chrome.storage.local.remove(storageKey(mode, contextId));
     }
     setMessages([]);
     allMessagesRef.current = [];
-    prevVideoIdRef.current = null;
-    setChatStarted(false);
+    prevContextIdRef.current = null;
     setSuggestions(null);
   }
 
   function buildHistory(): HistoryMessage[] {
     const uaMessages = messages.filter((m) => m.role === "user" || m.role === "assistant");
-    // Only include complete user/assistant pairs. A trailing user message without
-    // an assistant response (e.g. from a previous failed request) would cause the
-    // Anthropic API to reject the next request with a consecutive-user-messages error.
     const result: HistoryMessage[] = [];
     let i = 0;
     while (i < uaMessages.length) {
@@ -323,11 +338,11 @@ export default function ChatPanel({
   }
 
   async function fetchSuggestions() {
-    if (!chatStarted) setChatStarted(true);
+    ensureSessionPill();
     setLoadingSuggestions(true);
     const requestId = crypto.randomUUID();
     const history = buildHistory();
-    console.log(`[chat-panel] fetchSuggestions START requestId=${requestId} history=${history.length}`);
+    console.log(`[chat-panel] fetchSuggestions START requestId=${requestId} mode=${mode} history=${history.length}`);
 
     let settled = false;
 
@@ -348,10 +363,11 @@ export default function ChatPanel({
         videoId,
         history,
         requestId,
+        mode,
+        webpageContext: mode === "webpage" ? webpageContext : null,
       },
     });
 
-    // Timeout fallback
     setTimeout(() => {
       if (!settled) {
         console.log(`[chat-panel] fetchSuggestions TIMEOUT requestId=${requestId}`);
@@ -361,13 +377,10 @@ export default function ChatPanel({
     }, 15000);
   }
 
-  async function startConversation() {
-    setChatStarted(true);
-    await fetchSuggestions();
-  }
-
   function sendMessage() {
     if (!input.trim() || streaming || showKeyBanner) return;
+
+    ensureSessionPill();
 
     const userText = input.trim();
     setInput("");
@@ -377,28 +390,27 @@ export default function ChatPanel({
       id: crypto.randomUUID(),
       role: "user",
       content: userText,
-      videoId,
+      videoId: contextId,
     };
 
     const streamId = crypto.randomUUID();
     activeStreamId.current = streamId;
     const history = buildHistory();
-    console.log(`[chat-panel] sendMessage: streamId=${streamId} msg="${userText.slice(0, 60)}${userText.length > 60 ? "…" : ""}" history=${history.length} videoOnly=${videoOnly}`);
+    console.log(`[chat-panel] sendMessage: streamId=${streamId} mode=${mode} msg="${userText.slice(0, 60)}${userText.length > 60 ? "…" : ""}" history=${history.length} videoOnly=${videoOnly}`);
 
     const streamMsg: Message = {
       id: streamId,
       role: "assistant",
       content: "",
-      videoId,
+      videoId: contextId,
     };
 
     const withUser = [...allMessagesRef.current, userMsg];
     const withStream = [...withUser, streamMsg];
     setMessages(withStream);
 
-    // Save user message immediately
-    if (videoId) {
-      saveMessages(videoId, withUser);
+    if (contextId) {
+      saveMessages(mode, contextId, withUser);
       allMessagesRef.current = withUser;
     }
 
@@ -413,9 +425,25 @@ export default function ChatPanel({
         videoId,
         currentTimeSec: 0,
         streamId,
+        mode,
+        webpageContext: mode === "webpage" ? webpageContext : null,
       },
     });
   }
+
+  const toggleLabel = mode === "webpage" ? "Page only" : "Video only";
+  const toggleDesc = videoOnly
+    ? (mode === "webpage" ? "· answers from page only" : "· answers from the video transcript")
+    : "· may draw on outside knowledge";
+  const toggleTooltipOn = mode === "webpage"
+    ? "Claude only answers based on the page content. It won't use any outside knowledge."
+    : "Claude only answers based on what's said in the video. It won't use any outside knowledge.";
+  const toggleTooltipOff = mode === "webpage"
+    ? "Claude can use its general knowledge in addition to the page content."
+    : "Claude can use its general knowledge in addition to what's said in the video.";
+  const toggleDisabled = mode === "youtube" && !hasTranscript;
+
+  const showContextId = contextId; // whether we have an active context for chat
 
   return (
     <div className="flex flex-col h-full">
@@ -437,10 +465,7 @@ export default function ChatPanel({
           <span className="flex-1 text-amber-800 dark:text-amber-200 leading-relaxed">
             Chat requires an Anthropic API key.{" "}
             <button
-              onClick={() => {
-                // Dispatch event to open settings — App.tsx listens
-                window.dispatchEvent(new CustomEvent("open-settings"));
-              }}
+              onClick={() => window.dispatchEvent(new CustomEvent("open-settings"))}
               className="underline underline-offset-2 hover:text-amber-900 dark:hover:text-amber-100 transition-colors"
             >
               Add it in Settings
@@ -497,9 +522,11 @@ export default function ChatPanel({
         onMouseUp={handleMessagesMouseUp}
         className="flex-1 overflow-y-auto px-4 py-4 space-y-6"
       >
-        {!videoId && messages.length === 0 && (
+        {!showContextId && messages.length === 0 && (
           <p className="text-sm text-gray-400 dark:text-gray-500 text-center mt-8">
-            Open a YouTube video to start chatting.
+            {mode === "webpage"
+              ? "Ask a question about this page, or select text and click \"Ask AI\"."
+              : "Open a YouTube video to start chatting."}
           </p>
         )}
 
@@ -577,7 +604,7 @@ export default function ChatPanel({
       )}
 
       {/* Loading suggestions */}
-      {loadingSuggestions && chatStarted && (
+      {loadingSuggestions && (
         <div className="px-4 py-3 border-t border-gray-200 dark:border-gray-800 shrink-0">
           <p className="text-[11px] text-gray-400 dark:text-gray-500 text-center animate-pulse tracking-wide">
             Generating suggestions…
@@ -586,22 +613,25 @@ export default function ChatPanel({
       )}
 
       {/* Action strip — chat controls */}
-      {videoId && (
+      {showContextId && (
         <div className="flex items-center gap-2 px-3 h-8 border-t border-gray-200 dark:border-gray-800 shrink-0">
-          {/* Video-only toggle — flex-1 so label compresses first at narrow widths */}
+          {/* Page-only / Video-only toggle */}
           <button
-            onClick={() => setVideoOnly((v) => {
-              const next = !v;
-              chrome.storage.local.set({ videoOnly: next });
-              return next;
-            })}
-            disabled={!hasTranscript}
+            onClick={() => {
+              const prefKey = mode === "webpage" ? "pageOnly" : "videoOnly";
+              setVideoOnly((v) => {
+                const next = !v;
+                chrome.storage.local.set({ [prefKey]: next });
+                return next;
+              });
+            }}
+            disabled={toggleDisabled}
             title={
-              !hasTranscript
+              toggleDisabled
                 ? "No transcript available"
                 : videoOnly
-                ? "Claude only answers based on what's said in the video. It won't use any outside knowledge."
-                : "Claude can use its general knowledge in addition to what's said in the video."
+                ? toggleTooltipOn
+                : toggleTooltipOff
             }
             className="flex items-center gap-1.5 flex-1 min-w-0 disabled:opacity-40 disabled:cursor-not-allowed group"
           >
@@ -609,10 +639,10 @@ export default function ChatPanel({
               <div className={`absolute top-0.5 w-3 h-3 rounded-full bg-white shadow-sm transition-transform ${videoOnly ? "translate-x-3.5" : "translate-x-0.5"}`} />
             </div>
             <span className={`text-[11px] shrink-0 transition-colors ${videoOnly ? "text-gray-700 dark:text-gray-200" : "text-gray-400 dark:text-gray-500"}`}>
-              Video only
+              {toggleLabel}
             </span>
             <span className={`text-[10px] truncate transition-colors ${videoOnly ? "text-blue-500 dark:text-blue-400" : "text-gray-400 dark:text-gray-500"}`}>
-              {videoOnly ? "· answers from the video transcript" : "· may draw on outside knowledge"}
+              {toggleDesc}
             </span>
           </button>
 
@@ -640,18 +670,9 @@ export default function ChatPanel({
         </div>
       )}
 
-      {/* Input or Start conversation */}
+      {/* Input */}
       <div className="px-3 py-3 border-t border-gray-200 dark:border-gray-800 shrink-0">
-        {!chatStarted && videoId ? (
-          <button
-            onClick={startConversation}
-            disabled={loadingSuggestions || showKeyBanner}
-            className="w-full py-2.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-60 text-white rounded-xl text-sm font-medium transition-colors"
-          >
-            {loadingSuggestions ? "Loading suggestions…" : "Start conversation"}
-          </button>
-        ) : (
-          <div className="flex gap-2 items-end">
+        <div className="flex gap-2 items-end">
             <textarea
               ref={textareaRef}
               value={input}
@@ -665,6 +686,8 @@ export default function ChatPanel({
               placeholder={
                 showKeyBanner
                   ? "Add your API key in Settings to chat"
+                  : mode === "webpage"
+                  ? "Ask about this page… (Enter to send)"
                   : "Ask anything… (Enter to send)"
               }
               disabled={showKeyBanner}
@@ -679,8 +702,9 @@ export default function ChatPanel({
               Send
             </button>
           </div>
-        )}
       </div>
     </div>
   );
-}
+});
+
+export default ChatPanel;

@@ -19,10 +19,9 @@ function maskKeys(row: Record<string, unknown>) {
 
 export async function GET() {
   const session = await auth();
-  if (!session?.user?.id) return new NextResponse(null, { status: 401 });
-
-  const settings = await prisma.userSettings.findUnique({
-    where: { userId: session.user.id },
+  if (!session) return new NextResponse(null, { status: 401 });
+  const settings = await prisma.settings.findUnique({
+    where: { id: "singleton" },
   });
   return NextResponse.json({
     ...maskKeys((settings ?? {}) as Record<string, unknown>),
@@ -32,21 +31,17 @@ export async function GET() {
 
 export async function PATCH(req: NextRequest) {
   const session = await auth();
-  if (!session?.user?.id) return new NextResponse(null, { status: 401 });
-  const userId = session.user.id;
-
+  if (!session) return new NextResponse(null, { status: 401 });
   const body = await req.json();
   const data: Record<string, string | null> = {};
   for (const key of ALLOWED_KEYS) {
     if (key in body) data[key] = body[key] === "" ? null : String(body[key]);
   }
-
-  const settings = await prisma.userSettings.upsert({
-    where: { userId },
+  const settings = await prisma.settings.upsert({
+    where: { id: "singleton" },
     update: data,
-    create: { userId, ...data },
+    create: { id: "singleton", ...data },
   });
-
-  invalidateSettingsCache(userId);
+  invalidateSettingsCache();
   return NextResponse.json(maskKeys(settings as unknown as Record<string, unknown>));
 }

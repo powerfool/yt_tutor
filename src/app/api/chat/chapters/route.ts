@@ -1,8 +1,8 @@
 import { auth } from "@/auth";
 import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
+import { TranscriptSegment } from "@/lib/youtube";
 import { getAnthropicApiKey, getPrompt } from "@/lib/settings";
-import { getVideoData } from "@/lib/transcript";
 
 function formatMs(ms: number): string {
   const total = Math.floor(ms / 1000);
@@ -13,20 +13,19 @@ function formatMs(ms: number): string {
 
 export async function POST(req: NextRequest) {
   const session = await auth();
-  if (!session?.user?.id) return new NextResponse(null, { status: 401 });
-  const userId = session.user.id;
+  if (!session) return new NextResponse(null, { status: 401 });
 
-  const apiKey = await getAnthropicApiKey(userId);
-  if (!apiKey) return new NextResponse(null, { status: 402 });
+  const apiKey = await getAnthropicApiKey();
+  if (!apiKey) return NextResponse.json({ error: "no_api_key" }, { status: 402 });
   const client = new Anthropic({ apiKey });
-  const chaptersSystemPrompt = await getPrompt(userId, "chaptersSystemPrompt");
-  const chaptersUserPrompt = await getPrompt(userId, "chaptersUserPrompt");
+  const chaptersSystemPrompt = await getPrompt("chaptersSystemPrompt");
+  const chaptersUserPrompt = await getPrompt("chaptersUserPrompt");
 
-  const { videoId }: { videoId: string | null } = await req.json();
-
-  if (!videoId) return NextResponse.json({ chapters: [] });
-
-  const { transcript, videoTitle } = await getVideoData(videoId, userId);
+  const {
+    transcript,
+    videoTitle,
+  }: { transcript: TranscriptSegment[] | null; videoTitle: string | null } =
+    await req.json();
 
   if (!transcript || transcript.length === 0) {
     return NextResponse.json({ chapters: [] });

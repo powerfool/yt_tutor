@@ -92,8 +92,10 @@ export default function ChatPanel({
   // Load messages when videoId changes
   useEffect(() => {
     if (!videoId) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setMessages([]);
       allMessagesRef.current = [];
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setMessagesLoaded(false);
       loadingMessagesRef.current = false;
       return;
@@ -123,10 +125,12 @@ export default function ChatPanel({
 
     if (isNewVideo) {
       prevVideoIdRef.current = videoId;
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setSuggestions(null);
       const hasConvo = allMessagesRef.current.some(
         (m) => (m.role === "user" || m.role === "assistant") && m.videoId === videoId
       );
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setChatStarted(hasConvo);
     }
 
@@ -529,7 +533,7 @@ export default function ChatPanel({
                             {msg.content}
                           </ReactMarkdown>
                         </div>
-                        {streaming && activeStreamId.current === msg.id && msg.content === "" && (
+                        {streaming && msg.content === "" && (
                           <span className="inline-block w-1.5 h-3.5 bg-gray-400 dark:bg-gray-500 animate-pulse rounded-sm" />
                         )}
                       </>

@@ -10,10 +10,10 @@ export default async function ProjectPage({
   params: Promise<{ id: string }>;
 }) {
   const session = await auth();
-  if (!session?.user?.id) redirect("/login");
+  if (!session) redirect("/login");
 
   const { id } = await params;
-  const project = await prisma.project.findUnique({ where: { id, userId: session.user.id } });
+  const project = await prisma.project.findUnique({ where: { id } });
   if (!project) notFound();
 
   return (

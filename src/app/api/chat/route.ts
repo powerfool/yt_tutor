@@ -1,8 +1,8 @@
 import { auth } from "@/auth";
 import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
+import { TranscriptSegment } from "@/lib/youtube";
 import { getAnthropicApiKey, getPrompt } from "@/lib/settings";
-import { getVideoData } from "@/lib/transcript";
 
 type HistoryMessage = { role: "user" | "assistant"; content: string };
 
@@ -23,35 +23,32 @@ function formatSec(sec: number): string {
 
 export async function POST(req: NextRequest) {
   const session = await auth();
-  if (!session?.user?.id) return new NextResponse(null, { status: 401 });
-  const userId = session.user.id;
+  if (!session) return new NextResponse(null, { status: 401 });
 
-  const apiKey = await getAnthropicApiKey(userId);
+  const apiKey = await getAnthropicApiKey();
   if (!apiKey) {
     return NextResponse.json({ error: "no_api_key" }, { status: 402 });
   }
   const client = new Anthropic({ apiKey });
-  const systemPrompt = await getPrompt(userId, "chatSystemPrompt");
-  const videoOnlyPrompt = await getPrompt(userId, "chatVideoOnlyPrompt");
-  const generalPrompt = await getPrompt(userId, "chatGeneralPrompt");
+  const systemPrompt = await getPrompt("chatSystemPrompt");
+  const videoOnlyPrompt = await getPrompt("chatVideoOnlyPrompt");
+  const generalPrompt = await getPrompt("chatGeneralPrompt");
 
   const {
     message,
     history,
     videoOnly,
-    videoId,
+    transcript,
+    videoTitle,
     currentTimeSec,
   }: {
     message: string;
     history: HistoryMessage[];
     videoOnly: boolean;
-    videoId: string | null;
+    transcript: TranscriptSegment[] | null;
+    videoTitle: string | null;
     currentTimeSec: number;
   } = await req.json();
-
-  const { transcript, videoTitle } = videoId
-    ? await getVideoData(videoId, userId)
-    : { transcript: null, videoTitle: null };
 
   // Block 1: large static block (cached)
   let block1: string;

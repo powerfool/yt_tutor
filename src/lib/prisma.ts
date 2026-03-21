@@ -1,13 +1,16 @@
 import { PrismaClient } from "@/generated/prisma/client";
-import { PrismaNeon } from "@prisma/adapter-neon";
+import path from "path";
 
 const globalForPrisma = globalThis as unknown as { prisma: PrismaClient };
 
-function createPrismaClient() {
-  const adapter = new PrismaNeon({ connectionString: process.env.DATABASE_URL });
-  return new PrismaClient({ adapter, log: ["error"] });
-}
+// Use absolute path so Prisma finds the DB regardless of Turbopack's cwd resolution
+const url = `file:${path.resolve(process.cwd(), "prisma/dev.db")}`;
 
-export const prisma = globalForPrisma.prisma ?? createPrismaClient();
+export const prisma =
+  globalForPrisma.prisma ??
+  new PrismaClient({
+    log: ["error"],
+    datasources: { db: { url } },
+  });
 
 if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma;

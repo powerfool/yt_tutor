@@ -1,40 +1,42 @@
-import NextAuth, { type DefaultSession } from "next-auth";
-import Google from "next-auth/providers/google";
-import { PrismaAdapter } from "@auth/prisma-adapter";
-import { prisma } from "@/lib/prisma";
-
-declare module "next-auth" {
-  interface Session {
-    user: {
-      id: string;
-    } & DefaultSession["user"];
-  }
-}
+import NextAuth from "next-auth";
+import Credentials from "next-auth/providers/credentials";
+import bcrypt from "bcryptjs";
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
-  adapter: PrismaAdapter(prisma),
-  providers: [Google],
+  providers: [
+    Credentials({
+      credentials: {
+        username: { label: "Username", type: "text" },
+        password: { label: "Password", type: "password" },
+      },
+      async authorize(credentials) {
+        try {
+          const username = credentials?.username as string;
+          const password = credentials?.password as string;
+
+          if (!username || !password) return null;
+
+          const validUsername = username === process.env.ADMIN_USERNAME;
+          const validPassword = await bcrypt.compare(
+            password,
+            process.env.ADMIN_PASSWORD_HASH!
+          );
+
+          if (validUsername && validPassword) {
+            return { id: "1", name: username };
+          }
+          return null;
+        } catch (err) {
+          console.error("[AUTH] authorize error:", err);
+          return null;
+        }
+      },
+    }),
+  ],
   pages: {
     signIn: "/login",
   },
   session: {
-    strategy: "database",
-  },
-  callbacks: {
-    session({ session, user }) {
-      session.user.id = user.id;
-      return session;
-    },
-  },
-  events: {
-    async createUser({ user }) {
-      // First-ever login: seed a welcome project so the app isn't empty
-      await prisma.project.create({
-        data: {
-          name: "My First Project",
-          userId: user.id!,
-        },
-      });
-    },
+    strategy: "jwt",
   },
 });

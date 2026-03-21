@@ -33,12 +33,14 @@ type Props = {
 export default function ChatPanel({ projectId, videoId, videoTitle, transcript, playerRef, videoLoading = false, onCopyToNotebook, onCopyMarkdownToNotebook, onChaptersGenerated, chapters }: Props) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
-  const [videoOnly, setVideoOnly] = useState(() => {
-    if (typeof window === "undefined") return true;
+  const [videoOnly, setVideoOnly] = useState(true);
+
+  useEffect(() => {
     const saved = localStorage.getItem("videoOnly");
-    return saved !== null ? saved === "true" : true;
-  });
+    if (saved !== null) setVideoOnly(saved === "true");
+  }, []);
   const [showKeyBanner, setShowKeyBanner] = useState(false);
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [streaming, setStreaming] = useState(false);
   const [selectionPopup, setSelectionPopup] = useState<SelectionPopup | null>(null);
   const [chatStarted, setChatStarted] = useState(false);
@@ -65,6 +67,7 @@ export default function ChatPanel({ projectId, videoId, videoTitle, transcript, 
         if (!s.hasServerFallback && s.anthropicApiKey !== "set") {
           setShowKeyBanner(true);
         }
+        setSettingsLoaded(true);
       });
   }, [projectId]);
 
@@ -192,12 +195,17 @@ export default function ChatPanel({ projectId, videoId, videoTitle, transcript, 
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          videoId,
+          transcript,
+          videoTitle,
           currentTimeSec: playerRef.current?.getCurrentTime() ?? 0,
           history: buildHistory(),
           currentChapter: getCurrentChapter(),
         }),
       });
+      if (res.status === 402) {
+        setShowKeyBanner(true);
+        return;
+      }
       if (res.ok) {
         const { suggestions: s } = await res.json();
         setSuggestions(s);
@@ -208,13 +216,17 @@ export default function ChatPanel({ projectId, videoId, videoTitle, transcript, 
   }
 
   async function fetchChapters() {
-    if (!videoId || !transcript || transcript.length === 0 || !onChaptersGenerated) return;
+    if (!transcript || transcript.length === 0 || !onChaptersGenerated) return;
     try {
       const res = await fetch("/api/chat/chapters", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ videoId }),
+        body: JSON.stringify({ transcript, videoTitle }),
       });
+      if (res.status === 402) {
+        setShowKeyBanner(true);
+        return;
+      }
       if (res.ok) {
         const { chapters } = await res.json();
         if (Array.isArray(chapters) && chapters.length > 0) {
@@ -227,6 +239,7 @@ export default function ChatPanel({ projectId, videoId, videoTitle, transcript, 
   }
 
   async function startConversation() {
+    if (showKeyBanner) return;
     setChatStarted(true);
     const tasks: Promise<void>[] = [fetchSuggestions()];
     // Only generate chapters if none are already loaded (e.g. from saved watch history)
@@ -237,7 +250,7 @@ export default function ChatPanel({ projectId, videoId, videoTitle, transcript, 
   }
 
   async function sendMessage() {
-    if (!input.trim() || streaming || showKeyBanner) return;
+    if (!input.trim() || streaming || showKeyBanner || !settingsLoaded) return;
 
     const userText = input.trim();
     setInput("");
@@ -271,7 +284,8 @@ export default function ChatPanel({ projectId, videoId, videoTitle, transcript, 
         message: userText,
         history: buildHistory(),
         videoOnly,
-        videoId,
+        transcript,
+        videoTitle,
         currentTimeSec: playerRef.current?.getCurrentTime() ?? 0,
       }),
     });
@@ -481,20 +495,14 @@ export default function ChatPanel({ projectId, videoId, videoTitle, transcript, 
       {/* Action strip — chat controls */}
       {videoId && (
         <div className="flex items-center gap-2 px-3 h-8 border-t border-gray-200 dark:border-gray-800 shrink-0">
-          {/* Video-only toggle — flex-1 so label compresses first at narrow widths */}
           <button
-            onClick={() => setVideoOnly((v) => {
-              const next = !v;
-              localStorage.setItem("videoOnly", String(next));
-              return next;
-            })}
+            onClick={() => setVideoOnly((v) => { const next = !v; localStorage.setItem("videoOnly", String(next)); return next; })}
             disabled={!transcript || transcript.length === 0}
-            title={
-              !transcript || transcript.length === 0
-                ? "No transcript available"
-                : videoOnly
-                ? "Claude only answers based on what's said in the video. It won't use any outside knowledge."
-                : "Claude can use its general knowledge in addition to what's said in the video."
+            title={!transcript || transcript.length === 0
+              ? "No transcript available"
+              : videoOnly
+              ? "Claude only answers based on what's said in the video. It won't use any outside knowledge."
+              : "Claude can use its general knowledge in addition to what's said in the video."
             }
             className="flex items-center gap-1.5 flex-1 min-w-0 disabled:opacity-40 disabled:cursor-not-allowed group"
           >
@@ -508,26 +516,15 @@ export default function ChatPanel({ projectId, videoId, videoTitle, transcript, 
               {videoOnly ? "· answers from the video transcript" : "· may draw on outside knowledge"}
             </span>
           </button>
-
-          {/* Suggest */}
-          <button
-            onClick={fetchSuggestions}
-            disabled={loadingSuggestions}
+          <button onClick={fetchSuggestions} disabled={loadingSuggestions}
             className="shrink-0 text-[11px] px-2.5 py-1 rounded-full border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:border-blue-400 hover:text-blue-600 dark:hover:text-blue-400 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-            title="Suggest questions"
-          >
+            title="Suggest questions">
             {loadingSuggestions ? "…" : "Suggest"}
           </button>
-
           <div className="w-px h-4 bg-gray-200 dark:bg-gray-700 shrink-0" />
-
-          {/* Clear */}
-          <button
-            onClick={clearChat}
-            disabled={messages.length === 0}
+          <button onClick={clearChat} disabled={messages.length === 0}
             className="shrink-0 text-[11px] px-2.5 py-1 rounded-full border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:border-red-400 hover:text-red-500 dark:hover:text-red-400 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-            title="Clear all messages"
-          >
+            title="Clear all messages">
             Clear
           </button>
         </div>
@@ -542,7 +539,7 @@ export default function ChatPanel({ projectId, videoId, videoTitle, transcript, 
         ) : !chatStarted && videoId ? (
           <button
             onClick={startConversation}
-            disabled={loadingSuggestions || showKeyBanner}
+            disabled={loadingSuggestions || showKeyBanner || !settingsLoaded}
             className="w-full py-2.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-60 text-white rounded-xl text-sm font-medium transition-colors"
           >
             {loadingSuggestions ? "Loading suggestions…" : "Start conversation"}
@@ -560,13 +557,13 @@ export default function ChatPanel({ projectId, videoId, videoTitle, transcript, 
                 }
               }}
               placeholder={showKeyBanner ? "Add your API key in Settings to chat" : "Ask anything… (Enter to send, Shift+Enter for new line)"}
-              disabled={showKeyBanner}
+              disabled={showKeyBanner || !settingsLoaded}
               rows={2}
               className="flex-1 px-3.5 py-2.5 text-sm rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500/60 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             />
             <button
               onClick={sendMessage}
-              disabled={streaming || !input.trim() || showKeyBanner}
+              disabled={streaming || !input.trim() || showKeyBanner || !settingsLoaded}
               className="px-4 py-2.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-xl text-sm font-medium transition-colors shrink-0"
             >
               Send

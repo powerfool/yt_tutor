@@ -127,7 +127,9 @@ export default function ChatPanel({
       prevVideoIdRef.current = videoId;
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setSuggestions(null);
-      const hasConvo = allMessagesRef.current.some((m) => m.videoId === videoId);
+      const hasConvo = allMessagesRef.current.some(
+        (m) => (m.role === "user" || m.role === "assistant") && m.videoId === videoId
+      );
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setChatStarted(hasConvo);
     }
@@ -321,7 +323,7 @@ export default function ChatPanel({
   }
 
   async function fetchSuggestions() {
-    setChatStarted(true);
+    if (!chatStarted) setChatStarted(true);
     setLoadingSuggestions(true);
     const requestId = crypto.randomUUID();
     const history = buildHistory();

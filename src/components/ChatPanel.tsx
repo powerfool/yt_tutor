@@ -365,6 +365,31 @@ export default function ChatPanel({ projectId, videoId, videoTitle, transcript, 
         </div>
       )}
 
+      {/* API key banner */}
+      {showKeyBanner && (
+        <div className="mx-3 mt-2 flex items-start gap-2.5 rounded-lg border border-amber-200 dark:border-amber-900/60 bg-amber-50 dark:bg-amber-950/30 px-3.5 py-2.5 text-xs shrink-0">
+          <svg className="shrink-0 mt-0.5 text-amber-500" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+            <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+          </svg>
+          <span className="flex-1 text-amber-800 dark:text-amber-200 leading-relaxed">
+            Chat requires an Anthropic API key.{" "}
+            <a href="/settings" className="underline underline-offset-2 hover:text-amber-900 dark:hover:text-amber-100 transition-colors">
+              Add it in Settings
+            </a>
+            .
+          </span>
+          <button
+            onClick={() => setShowKeyBanner(false)}
+            className="shrink-0 text-amber-400 hover:text-amber-600 dark:hover:text-amber-300 transition-colors mt-0.5"
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+        </div>
+      )}
+
       {/* Selection popup */}
       {selectionPopup && (
         <div

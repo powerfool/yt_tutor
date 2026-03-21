@@ -2,7 +2,7 @@
 
 **YT Tutor** turns passive YouTube watching into active learning. Paste a URL, and alongside the video you get an AI research partner and a personal notebook — all in one window, all saved automatically.
 
-Multi-user, self-hosted, runs on a VPS. Sign in with Google. Each user brings their own API keys and can tune AI prompts — all from the UI, no code changes needed after deploy.
+Self-hosted, runs on a VPS. Sign in with Google. API keys and AI prompts are configurable from the UI — no code changes needed after deploy.
 
 ![Screenshot](/screenshot.png "Screenshot")
 
@@ -29,6 +29,7 @@ When you open a video, Claude suggests four questions to get you started. As the
 **Quote in chat** — highlight any part of a response, hit "Quote in chat", and that text drops into your input as a blockquote. Ask a follow-up without retyping anything.
 
 <img src="/1-chat.jpg" alt="Ask Claude" width="500" />
+
 ---
 
 ### Build a notebook
@@ -49,7 +50,7 @@ Projects work like browser tabs for your research. Each one has its own video hi
 
 ### Settings
 
-A gear icon in the tab bar opens the settings page. Add your Anthropic and YouTube API keys directly in the UI — no config file edits needed after the first deploy. You can also override any of the AI prompts if you want to tune how Claude behaves.
+A gear icon in the tab bar opens the settings page. Add your Anthropic and YouTube API keys directly in the UI — no config file edits needed after the first setup. You can also override any of the AI prompts if you want to tune how Claude behaves.
 
 ---
 
@@ -100,7 +101,7 @@ AUTH_URL="http://localhost:3000"
 AUTH_GOOGLE_ID="....apps.googleusercontent.com"
 AUTH_GOOGLE_SECRET="GOCSPX-..."
 
-# Optional server-level fallback keys (users can override in Settings)
+# Optional — can be added later via Settings in the UI
 ANTHROPIC_API_KEY="sk-ant-..."
 YOUTUBE_API_KEY="AIza..."
 ```

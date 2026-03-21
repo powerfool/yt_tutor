@@ -1,11 +1,13 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
-import ChatPanel from "../components/ChatPanel";
+import ChatPanel, { ChatPanelHandle } from "../components/ChatPanel";
 import NotebookPanel, { NotebookHandle } from "../components/NotebookPanel";
 import SettingsPanel from "../components/SettingsPanel";
 
 type Layout = "chat" | "both" | "notebook";
+type PageMode = "youtube" | "webpage" | "none";
+type WebpageContext = { url: string; title: string; markdownContent: string | null };
 
 const LAYOUT_CYCLE: Layout[] = ["chat", "both", "notebook"];
 
@@ -14,13 +16,17 @@ function nextLayout(current: Layout): Layout {
   return LAYOUT_CYCLE[(idx + 1) % LAYOUT_CYCLE.length];
 }
 
-function IconLayoutDestination({ current }: { current: Layout }) {
-  // Shows the destination layout as two small panel rectangles
-  const chatFilled   = current === "chat"     ? "fill-current" : "fill-none stroke-current";
-  const noteFilled   = current === "notebook" ? "fill-current" : "fill-none stroke-current";
-  const bothFilled   = "fill-current";
+function normalizeUrl(url: string): string {
+  try {
+    const u = new URL(url);
+    return u.origin + u.pathname;
+  } catch {
+    return url;
+  }
+}
 
-  // Destination: chat→both, both→notebook, notebook→chat
+function IconLayoutDestination({ current }: { current: Layout }) {
+  const bothFilled = "fill-current";
   let leftFill: string, rightFill: string;
   switch (current) {
     case "chat":     leftFill = bothFilled;  rightFill = bothFilled;  break;
@@ -53,20 +59,39 @@ function IconGear() {
   );
 }
 
+function WebpageContextBanner({ ctx }: { ctx: WebpageContext }) {
+  const displayTitle = ctx.title || "Untitled page";
+  let displayUrl = "";
+  try {
+    const u = new URL(ctx.url);
+    displayUrl = u.hostname + (u.pathname !== "/" ? u.pathname : "");
+  } catch {
+    displayUrl = ctx.url;
+  }
+  return (
+    <div className="mx-3 mt-2 px-3 py-2 text-xs text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800/50 rounded-lg shrink-0 min-w-0">
+      <div className="font-medium truncate">{displayTitle}</div>
+      <div className="text-blue-500 dark:text-blue-400 truncate">{displayUrl}</div>
+    </div>
+  );
+}
+
 export default function App() {
   const [layout, setLayout] = useState<Layout>("chat");
   const [showSettings, setShowSettings] = useState(false);
+  const [pageMode, setPageMode] = useState<PageMode>("none");
+  const [webpageContext, setWebpageContext] = useState<WebpageContext | null>(null);
+  const [pendingPrefill, setPendingPrefill] = useState<string | null>(null);
   const [videoId, setVideoId] = useState<string | null>(null);
   const [videoTitle, setVideoTitle] = useState<string | null>(null);
   const [hasTranscript, setHasTranscript] = useState(false);
-  // True once the background has confirmed transcript status for the current video.
-  // Prevents the "no captions" banner from flashing before extractFromTab finishes.
   const [transcriptKnown, setTranscriptKnown] = useState(false);
-  const [isYoutube, setIsYoutube] = useState(false);
   const notebookRef = useRef<NotebookHandle>(null);
-  // Set to true when VIDEO_STATE arrives. Prevents a slow GET_STATE response
-  // from overwriting videoId/videoTitle that VIDEO_STATE already set correctly.
-  const videoStateReceivedRef = useRef(false);
+  const chatPanelRef = useRef<ChatPanelHandle>(null);
+  // Set to true when VIDEO_STATE or WEBPAGE_STATE arrives.
+  const stateReceivedRef = useRef(false);
+
+  const isYoutube = pageMode === "youtube";
 
   // Load persisted layout state
   useEffect(() => {
@@ -77,55 +102,50 @@ export default function App() {
     });
   }, []);
 
-  // Request current video state from background on mount
+  // Request current state from background on mount
   useEffect(() => {
-    // 1. Immediately check the active tab — if it's YouTube, show the panel
-    //    right away and seed videoId + videoTitle before extractFromTab completes.
-    //    Also trigger EXTRACT_TAB so the background re-extracts transcript via
-    //    world:"MAIN" (the content script can't do this from isolated world).
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
       const tab = tabs[0];
       const url = tab?.url ?? "";
+
       if (url.includes("youtube.com")) {
-        setIsYoutube(true);
-        setTranscriptKnown(false); // wait for background to confirm
+        setPageMode("youtube");
+        setTranscriptKnown(false);
         try {
           const vid = new URL(url).searchParams.get("v");
           if (vid) setVideoId(vid);
         } catch { /* ignore */ }
-        // Tab title is "Video Title - YouTube" — strip the suffix for an
-        // immediate title before the background finishes extractFromTab.
         if (tab?.title) {
           const title = tab.title.replace(/ [-–] YouTube$/, "").trim();
           if (title) setVideoTitle(title);
         }
-        // Ask background to (re-)extract transcript for this tab right now.
-        // This handles the case where the sidebar opens on an already-loaded
-        // YouTube tab that never triggered tabs.onUpdated (e.g. after SW restart).
         if (tab?.id) {
           console.log(`[app] mount: active tab url=${url} → sending EXTRACT_TAB tabId=${tab.id}`);
           chrome.runtime.sendMessage({ type: "EXTRACT_TAB", tabId: tab.id }).catch(() => {});
         }
+      } else if (url.startsWith("http://") || url.startsWith("https://")) {
+        setPageMode("webpage");
+        setWebpageContext({ url, title: tab?.title ?? "", markdownContent: null });
+        console.log(`[app] mount: active tab is webpage url=${url}`);
       } else {
-        console.log(`[app] mount: active tab not YouTube (url=${url})`);
+        console.log(`[app] mount: active tab is neither YouTube nor webpage (url=${url})`);
       }
     });
 
-    // 2. Get full persisted state from background (awaits restoreState internally).
-    //    Only apply videoId/videoTitle if VIDEO_STATE hasn't arrived yet — VIDEO_STATE
-    //    is authoritative and GET_STATE may carry stale data from a previous session.
-    //    isYoutube is derived from tabs.query (above) or VIDEO_STATE, not from persisted
-    //    state, because the background has no way to clear isYoutube when leaving YouTube.
     chrome.runtime.sendMessage({ type: "GET_STATE" }, (response) => {
       if (chrome.runtime.lastError || !response) return;
-      console.log(`[app] GET_STATE response: videoId=${response.videoId} hasTranscript=${response.hasTranscript} (videoStateReceived=${videoStateReceivedRef.current}, ${videoStateReceivedRef.current ? "skipping stale" : "applying"})`);
-      if (!videoStateReceivedRef.current) {
+      console.log(`[app] GET_STATE response: mode=${response.mode} videoId=${response.videoId} hasTranscript=${response.hasTranscript} (stateReceived=${stateReceivedRef.current})`);
+      if (!stateReceivedRef.current) {
         if (response.videoId) setVideoId(response.videoId);
         if (response.videoTitle) setVideoTitle(response.videoTitle);
+        if (response.mode === "webpage" && response.webpageContext) {
+          setPageMode("webpage");
+          setWebpageContext(response.webpageContext);
+        }
       }
-      // Only trust hasTranscript=true from GET_STATE — false may be stale.
-      // VIDEO_STATE (sent after extractFromTab completes) is the authoritative
-      // source for both true and false, and always sets transcriptKnown=true.
+      if (response.pendingPrefill) {
+        setPendingPrefill(response.pendingPrefill);
+      }
       if (response.hasTranscript) {
         setHasTranscript(true);
         setTranscriptKnown(true);
@@ -140,19 +160,44 @@ export default function App() {
     return () => window.removeEventListener("open-settings", handler);
   }, []);
 
-  // Listen for video state updates from background
+  // Listen for state updates from background
   useEffect(() => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const listener = (msg: any) => {
       if (msg.type === "VIDEO_STATE") {
         console.log(`[app] VIDEO_STATE: videoId=${msg.videoId} title="${msg.videoTitle}" hasTranscript=${msg.hasTranscript}`);
-        videoStateReceivedRef.current = true;
+        stateReceivedRef.current = true;
         setVideoId(msg.videoId ?? null);
         setVideoTitle(msg.videoTitle ?? null);
         setHasTranscript(msg.hasTranscript ?? false);
-        setIsYoutube(msg.videoId != null);
-        // VIDEO_STATE is sent after extractFromTab completes — definitive answer
+        setPageMode(msg.videoId != null ? "youtube" : "none");
+        setWebpageContext(null);
         setTranscriptKnown(true);
+      }
+
+      if (msg.type === "WEBPAGE_STATE") {
+        console.log(`[app] WEBPAGE_STATE: url=${msg.webpageContext?.url}`);
+        stateReceivedRef.current = true;
+        setPageMode("webpage");
+        setWebpageContext(msg.webpageContext ?? null);
+        setVideoId(null);
+        setVideoTitle(null);
+        setHasTranscript(false);
+      }
+
+      if (msg.type === "CLEAR_STATE") {
+        console.log("[app] CLEAR_STATE");
+        stateReceivedRef.current = true;
+        setPageMode("none");
+        setVideoId(null);
+        setVideoTitle(null);
+        setHasTranscript(false);
+        setWebpageContext(null);
+      }
+
+      if (msg.type === "PREFILL_INPUT") {
+        console.log(`[app] PREFILL_INPUT len=${msg.selectedText?.length}`);
+        chatPanelRef.current?.prefillQuote(msg.selectedText ?? "");
       }
     };
     chrome.runtime.onMessage.addListener(listener);
@@ -162,13 +207,11 @@ export default function App() {
   const cycleLayout = useCallback(() => {
     setLayout((prev) => {
       const next = nextLayout(prev);
-      console.log(`[app] layout changed: ${prev} → ${next} (persisted)`);
       chrome.storage.local.set({ layoutState: next });
       return next;
     });
   }, []);
 
-  // Auto-advance layout to include notebook when content is sent there
   const ensureNotebookVisible = useCallback(() => {
     setLayout((prev) => {
       if (prev === "chat") {
@@ -189,7 +232,6 @@ export default function App() {
     ensureNotebookVisible();
   }, [ensureNotebookVisible]);
 
-  // Controls that live in whichever panel header is "leading"
   const headerControls = (
     <div className="flex items-center gap-1">
       <button
@@ -214,6 +256,20 @@ export default function App() {
     </div>
   );
 
+  // contextId: the stable identifier for the current chat context
+  const contextId = pageMode === "youtube"
+    ? videoId
+    : pageMode === "webpage" && webpageContext
+      ? normalizeUrl(webpageContext.url)
+      : null;
+
+  // Apply pendingPrefill once contextId (and therefore ChatPanel) is ready
+  useEffect(() => {
+    if (!contextId || !pendingPrefill) return;
+    chatPanelRef.current?.prefillQuote(pendingPrefill);
+    setPendingPrefill(null);
+  }, [contextId, pendingPrefill]);
+
   return (
     <div className="flex flex-col h-screen bg-white dark:bg-gray-950 text-gray-900 dark:text-gray-100">
       {/* Settings overlay */}
@@ -226,9 +282,9 @@ export default function App() {
       {/* Main content */}
       {!showSettings && (
         <>
-          {!isYoutube && (
+          {/* No context (new tab, chrome://, etc.) */}
+          {pageMode === "none" && (
             <div className="flex-1 flex flex-col">
-              {/* Show controls even on non-YouTube pages so notebook is accessible */}
               <div className="flex items-center justify-between px-4 h-10 border-b border-gray-200 dark:border-gray-800 shrink-0">
                 <span className="text-[11px] font-semibold tracking-widest uppercase text-gray-500 dark:text-gray-400">Notebook</span>
                 {headerControls}
@@ -238,41 +294,76 @@ export default function App() {
               ) : (
                 <div className="flex-1 flex items-center justify-center p-8">
                   <p className="text-sm text-gray-400 dark:text-gray-500 text-center">
-                    Open a YouTube video to start chatting.
+                    Open a YouTube video or any webpage to start chatting.
                   </p>
                 </div>
               )}
             </div>
           )}
 
+          {/* YouTube mode */}
           {isYoutube && (
             <>
-              {/* No transcript banner — only after background confirms status */}
               {transcriptKnown && !hasTranscript && videoId && (
                 <div className="mx-3 mt-2 px-3 py-2 text-xs text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/50 rounded-lg shrink-0">
                   No captions available for this video — chat will work without transcript context.
                 </div>
               )}
               <div className="flex flex-1 overflow-hidden">
-                {/* Chat pane — carries the layout controls in its header */}
                 {(layout === "chat" || layout === "both") && (
                   <div className={`flex flex-col overflow-hidden ${layout === "both" ? "flex-1" : "w-full"}`}>
                     <ChatPanel
+                      ref={chatPanelRef}
                       videoId={videoId}
                       videoTitle={videoTitle}
                       hasTranscript={hasTranscript}
                       onCopyToNotebook={handleCopyToNotebook}
                       onCopyMarkdownToNotebook={handleCopyMarkdownToNotebook}
                       headerControls={headerControls}
+                      mode="youtube"
+                      contextId={contextId}
                     />
                   </div>
                 )}
-
                 {layout === "both" && (
                   <div className="w-px bg-gray-200 dark:bg-gray-800 shrink-0" />
                 )}
+                {(layout === "both" || layout === "notebook") && (
+                  <div className={`flex flex-col overflow-hidden ${layout === "both" ? "flex-1" : "w-full"}`}>
+                    <NotebookPanel
+                      ref={notebookRef}
+                      headerControls={layout === "notebook" ? headerControls : undefined}
+                    />
+                  </div>
+                )}
+              </div>
+            </>
+          )}
 
-                {/* Notebook pane — carries controls only when chat is hidden */}
+          {/* Webpage mode */}
+          {pageMode === "webpage" && (
+            <>
+              {webpageContext && <WebpageContextBanner ctx={webpageContext} />}
+              <div className="flex flex-1 overflow-hidden">
+                {(layout === "chat" || layout === "both") && (
+                  <div className={`flex flex-col overflow-hidden ${layout === "both" ? "flex-1" : "w-full"}`}>
+                    <ChatPanel
+                      ref={chatPanelRef}
+                      videoId={null}
+                      videoTitle={null}
+                      hasTranscript={false}
+                      onCopyToNotebook={handleCopyToNotebook}
+                      onCopyMarkdownToNotebook={handleCopyMarkdownToNotebook}
+                      headerControls={headerControls}
+                      mode="webpage"
+                      webpageContext={webpageContext}
+                      contextId={contextId}
+                    />
+                  </div>
+                )}
+                {layout === "both" && (
+                  <div className="w-px bg-gray-200 dark:bg-gray-800 shrink-0" />
+                )}
                 {(layout === "both" || layout === "notebook") && (
                   <div className={`flex flex-col overflow-hidden ${layout === "both" ? "flex-1" : "w-full"}`}>
                     <NotebookPanel

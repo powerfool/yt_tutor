@@ -2,7 +2,7 @@
 
 **YT Tutor** turns passive YouTube watching into active learning. Paste a URL, and alongside the video you get an AI research partner and a personal notebook — all in one window, all saved automatically.
 
-Built for solo use — single user, self-hosted. API keys and AI prompts are configurable from the UI — no code changes needed after first setup.
+Built for solo use — single user, self-hosted. API keys and AI prompts are configurable from the UI — no code changes needed after first setup. Also available as a Chrome extension — use it directly on YouTube without the web app.
 
 ![Screenshot](/screenshot.png "Screenshot")
 
@@ -54,6 +54,18 @@ A gear icon in the tab bar opens the settings page. Add your Anthropic and YouTu
 
 ---
 
+### Browser Extension
+
+An injected sidebar on YouTube pages and any webpage — no web app required. Click the YT Tutor icon on any tab and the chat + notebook UI appears in a compact panel. It calls the Anthropic API directly with your own key, and all data is stored in the browser (`chrome.storage.local`) — no server, no account needed.
+
+**On YouTube:** the sidebar loads the video transcript and chats about it, exactly like the web app.
+
+**On any other webpage:** the sidebar reads the page content (via [Defuddle](https://github.com/kepano/defuddle)) and lets you chat about it. The full page is extracted once on your first message and cached for the session. Select any text and click the floating **Ask AI** button to quote it directly into the chat input. Toggle **Page only** mode to keep Claude's answers strictly grounded in the page.
+
+The sidebar tracks the active tab — switching tabs switches the chat context and history automatically.
+
+---
+
 ### Everything persists
 
 - Chat history survives page reloads — scroll back through the full conversation
@@ -74,6 +86,14 @@ A gear icon in the tab bar opens the settings page. Add your Anthropic and YouTu
 | Video | YouTube IFrame Player API + Data API v3 |
 | Transcripts | Direct YouTube caption fetch + yt-dlp fallback |
 | Rich text | TipTap |
+
+**Extension**
+
+| | |
+|---|---|
+| Extension | Vite + React, @crxjs/vite-plugin, Chrome Manifest V3 |
+| Storage | chrome.storage.local (no server) |
+| Content extraction | Defuddle (webpage → markdown) |
 
 ---
 
@@ -112,6 +132,37 @@ npm run dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000) and sign in with the `ADMIN_USERNAME` / password you configured. API keys can be added any time from the Settings page in the UI.
+
+---
+
+## Browser Extension
+
+The extension injects a sidebar directly into YouTube pages — same chat and notebook UI as the web app, but running entirely in the browser with no server required. It calls the Anthropic API directly with your own key; all data is stored in `chrome.storage.local`.
+
+### Install
+
+```bash
+cd extension
+npm install
+npm run build
+```
+
+Then in Chrome:
+
+1. Go to `chrome://extensions`
+2. Enable **Developer mode** (top-right toggle)
+3. Click **Load unpacked** → select the `extension/dist/` folder
+
+### Setup
+
+Open any YouTube video → click the **YT Tutor** icon in the toolbar → open **Settings** (⚙) → paste your Anthropic API key.
+
+### Usage
+
+- **YouTube** — navigate to any YouTube video and the panel opens automatically. Chat requires captions; videos without them will show a warning.
+- **Any webpage** — click the YT Tutor icon on any `http/https` tab. The sidebar reads the page and lets you chat about it. Select text and click **Ask AI** to quote it into the input — the floating button appears wherever you select.
+- Switching tabs switches the context. Chat history is saved per-video and per-page URL.
+- Your API key is stored locally in the browser only — it never leaves your machine.
 
 ---
 
@@ -157,7 +208,6 @@ Make sure `.env` is populated on the server and `AUTH_URL` points to your public
 
 Features and improvements to address in future iterations:
 
-- **Browser extension** — injected sidebar on YouTube pages (works on Chrome and Firefox); same chat + notebook UI in a narrow layout calling the hosted API
 - **Encrypt API keys at rest** — application-level AES-256-GCM encryption for stored Anthropic/YouTube keys in the database, since users are trusting the app with keys that have billing implications
 - **Rate limiting on AI endpoints** — per-user request limits on `/api/chat`, `/api/chat/suggest`, and `/api/chat/chapters` to protect the server-level fallback API key
 - **Server-side chat history** — fetch conversation history from the DB in the chat route instead of trusting the client-supplied `history` array

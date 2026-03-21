@@ -5,7 +5,7 @@
   "description": "Chat with YouTube videos using AI. Take notes in a persistent notebook.",
   "permissions": ["sidePanel", "scripting", "storage", "tabs"],
   "host_permissions": [
-    "*://*.youtube.com/*",
+    "<all_urls>",
     "https://api.anthropic.com/*"
   ],
   "background": {
@@ -16,6 +16,12 @@
     {
       "matches": ["*://*.youtube.com/*"],
       "js": ["content/youtube.ts"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["<all_urls>"],
+      "exclude_matches": ["*://*.youtube.com/*"],
+      "js": ["content/webpage.ts"],
       "run_at": "document_idle"
     }
   ],

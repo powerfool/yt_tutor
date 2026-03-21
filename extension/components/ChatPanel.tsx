@@ -588,8 +588,11 @@ export default function ChatPanel({
             <div className={`relative w-7 h-4 rounded-full shrink-0 transition-colors ${videoOnly ? "bg-blue-600" : "bg-gray-200 dark:bg-gray-700 group-hover:bg-gray-300 dark:group-hover:bg-gray-600"}`}>
               <div className={`absolute top-0.5 w-3 h-3 rounded-full bg-white shadow-sm transition-transform ${videoOnly ? "translate-x-3.5" : "translate-x-0.5"}`} />
             </div>
-            <span className={`text-[11px] truncate transition-colors ${videoOnly ? "text-gray-700 dark:text-gray-200" : "text-gray-400 dark:text-gray-500"}`}>
+            <span className={`text-[11px] shrink-0 transition-colors ${videoOnly ? "text-gray-700 dark:text-gray-200" : "text-gray-400 dark:text-gray-500"}`}>
               Video only
+            </span>
+            <span className={`text-[10px] truncate transition-colors ${videoOnly ? "text-blue-500 dark:text-blue-400" : "text-gray-400 dark:text-gray-500"}`}>
+              {videoOnly ? "· transcript only" : "· uses outside knowledge"}
             </span>
           </button>
 

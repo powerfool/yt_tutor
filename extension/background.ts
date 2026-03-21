@@ -768,6 +768,86 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   }
 });
 
+// ── Tab switching ─────────────────────────────────────────────────────────────
+
+async function handleTabActivated(tabId: number) {
+  let tab: chrome.tabs.Tab;
+  try { tab = await chrome.tabs.get(tabId); } catch { return; }
+  const url = tab.url ?? "";
+
+  console.log(`[handleTabActivated] tabId=${tabId} url=${url}`);
+
+  if (url.includes("youtube.com/watch")) {
+    let videoId: string | null = null;
+    try { videoId = new URL(url).searchParams.get("v"); } catch { return; }
+    if (!videoId) return;
+
+    // Serve from cache immediately; only extract if we have no cached transcript
+    const transcriptKey = `transcript_${videoId}`;
+    const titleKey = `title_${videoId}`;
+    const cached = await chrome.storage.local.get([transcriptKey, titleKey]);
+    const transcript = cached[transcriptKey] as TranscriptSegment[] | null ?? null;
+    const videoTitle = (cached[titleKey] as string | null)
+      ?? tab.title?.replace(/ [-–] YouTube$/, "").trim()
+      ?? "Unknown Video";
+
+    if (transcript) {
+      console.log(`[handleTabActivated] youtube cache hit videoId=${videoId} segments=${transcript.length}`);
+      broadcastVideoState(videoId, videoTitle, transcript, true);
+    } else {
+      console.log(`[handleTabActivated] youtube no cache videoId=${videoId} → extracting`);
+      extractFromTab(tabId);
+    }
+  } else if (url.startsWith("http://") || url.startsWith("https://")) {
+    const title = tab.title ?? "";
+    console.log(`[handleTabActivated] webpage url=${url}`);
+    currentState = {
+      ...currentState,
+      videoId: null,
+      videoTitle: null,
+      transcript: null,
+      hasTranscript: false,
+      isYoutube: false,
+      mode: "webpage",
+      webpageContext: { url, title, markdownContent: null },
+      pendingPrefill: null,
+    };
+    chrome.storage.local.set({ currentMode: "webpage", currentWebpageUrl: url, currentWebpageTitle: title, currentVideoId: null });
+    chrome.runtime.sendMessage({ type: "WEBPAGE_STATE", webpageContext: currentState.webpageContext }).catch(() => {});
+  } else {
+    // New tab, chrome://, about:blank, etc.
+    console.log(`[handleTabActivated] no context url=${url}`);
+    currentState = {
+      ...currentState,
+      videoId: null,
+      videoTitle: null,
+      transcript: null,
+      hasTranscript: false,
+      isYoutube: false,
+      mode: "none",
+      webpageContext: null,
+      pendingPrefill: null,
+    };
+    chrome.storage.local.set({ currentMode: "none", currentVideoId: null });
+    chrome.runtime.sendMessage({ type: "CLEAR_STATE" }).catch(() => {});
+  }
+}
+
+// Update sidebar when user switches tabs
+chrome.tabs.onActivated.addListener(({ tabId }) => {
+  console.log(`[tabs.onActivated] tabId=${tabId}`);
+  handleTabActivated(tabId);
+});
+
+// Update sidebar when user switches Chrome windows
+chrome.windows.onFocusChanged.addListener(async (windowId) => {
+  if (windowId === chrome.windows.WINDOW_ID_NONE) return;
+  try {
+    const tabs = await chrome.tabs.query({ active: true, windowId });
+    if (tabs[0]?.id) handleTabActivated(tabs[0].id);
+  } catch { /* ignore */ }
+});
+
 // ── Message handler ──────────────────────────────────────────────────────────
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

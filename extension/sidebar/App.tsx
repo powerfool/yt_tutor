@@ -185,6 +185,16 @@ export default function App() {
         setHasTranscript(false);
       }
 
+      if (msg.type === "CLEAR_STATE") {
+        console.log("[app] CLEAR_STATE");
+        stateReceivedRef.current = true;
+        setPageMode("none");
+        setVideoId(null);
+        setVideoTitle(null);
+        setHasTranscript(false);
+        setWebpageContext(null);
+      }
+
       if (msg.type === "PREFILL_INPUT") {
         console.log(`[app] PREFILL_INPUT len=${msg.selectedText?.length}`);
         chatPanelRef.current?.prefillQuote(msg.selectedText ?? "");

@@ -87,7 +87,7 @@ const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel({
         .split("\n")
         .map((line) => `> ${line}`)
         .join("\n");
-      setInput((prev) => (prev ? `${prev}\n\n${quoted}\n\n` : `${quoted}\n\n`));
+      setInput(`${quoted}\n\n`);
       setTimeout(() => {
         textareaRef.current?.focus();
         const len = textareaRef.current?.value.length ?? 0;
@@ -119,6 +119,7 @@ const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel({
 
   // Load messages when contextId changes
   useEffect(() => {
+    setInput(""); // always clear typed input when context switches
     if (!contextId) {
       setMessages([]);
       allMessagesRef.current = [];

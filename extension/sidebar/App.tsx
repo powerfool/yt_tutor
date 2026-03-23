@@ -328,14 +328,12 @@ export default function App() {
                 {layout === "both" && (
                   <div className="w-px bg-gray-200 dark:bg-gray-800 shrink-0" />
                 )}
-                {(layout === "both" || layout === "notebook") && (
-                  <div className={`flex flex-col overflow-hidden ${layout === "both" ? "flex-1" : "w-full"}`}>
-                    <NotebookPanel
-                      ref={notebookRef}
-                      headerControls={layout === "notebook" ? headerControls : undefined}
-                    />
-                  </div>
-                )}
+                <div className={`flex flex-col overflow-hidden ${layout === "both" ? "flex-1" : "w-full"} ${layout === "chat" ? "hidden" : ""}`}>
+                  <NotebookPanel
+                    ref={notebookRef}
+                    headerControls={layout === "notebook" ? headerControls : undefined}
+                  />
+                </div>
               </div>
             </>
           )}
@@ -364,14 +362,12 @@ export default function App() {
                 {layout === "both" && (
                   <div className="w-px bg-gray-200 dark:bg-gray-800 shrink-0" />
                 )}
-                {(layout === "both" || layout === "notebook") && (
-                  <div className={`flex flex-col overflow-hidden ${layout === "both" ? "flex-1" : "w-full"}`}>
-                    <NotebookPanel
-                      ref={notebookRef}
-                      headerControls={layout === "notebook" ? headerControls : undefined}
-                    />
-                  </div>
-                )}
+                <div className={`flex flex-col overflow-hidden ${layout === "both" ? "flex-1" : "w-full"} ${layout === "chat" ? "hidden" : ""}`}>
+                  <NotebookPanel
+                    ref={notebookRef}
+                    headerControls={layout === "notebook" ? headerControls : undefined}
+                  />
+                </div>
               </div>
             </>
           )}

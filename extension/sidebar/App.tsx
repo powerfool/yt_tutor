@@ -44,9 +44,9 @@ function IconLayoutDestination({ current }: { current: Layout }) {
 
 function layoutButtonLabel(current: Layout): string {
   switch (current) {
-    case "chat":     return "Split";
-    case "both":     return "Notebook only";
-    case "notebook": return "Chat only";
+    case "chat":     return "Chat only";
+    case "both":     return "Split";
+    case "notebook": return "Notebook only";
   }
 }
 
@@ -236,7 +236,7 @@ export default function App() {
     <div className="flex items-center gap-1">
       <button
         onClick={cycleLayout}
-        title={`Switch to ${layoutButtonLabel(layout)} view`}
+        title={`Switch to ${layoutButtonLabel(nextLayout(layout))} view`}
         className="flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded-full border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:border-blue-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
       >
         <IconLayoutDestination current={layout} />

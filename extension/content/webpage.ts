@@ -43,7 +43,9 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   }
 });
 
-// ── Floating "Ask AI" button on text selection ────────────────────────────────
+// ── Floating "Ask YT Tutor" button on text selection (Chrome only) ───────────
+// Firefox uses the context menu instead (sidebar cannot be opened via message handler).
+const isFirefox = navigator.userAgent.includes("Firefox");
 
 let floatingHost: HTMLElement | null = null;
 let dismissTimer: ReturnType<typeof setTimeout> | null = null;
@@ -94,19 +96,9 @@ function createButton(x: number, y: number, selectedText: string) {
 
   btn.addEventListener("click", (e) => {
     e.stopPropagation();
+    removeButton();
     chrome.runtime.sendMessage({ type: "WEBPAGE_SELECTION", selectedText }).catch(() => {});
-    // Firefox: sidebarAction.open() cannot be called via message handler (user gesture lost).
-    // Show brief confirmation feedback instead; user opens the sidebar manually.
-    // Chrome: OPEN_SIDEBAR works fine via chrome.sidePanel.open().
-    const isFirefox = typeof (globalThis as unknown as { browser?: unknown }).browser !== "undefined";
-    if (isFirefox) {
-      btn.textContent = "Saved!";
-      btn.style.background = "#15803d";
-      dismissTimer = setTimeout(removeButton, 1200);
-    } else {
-      removeButton();
-      chrome.runtime.sendMessage({ type: "OPEN_SIDEBAR" }).catch(() => {});
-    }
+    chrome.runtime.sendMessage({ type: "OPEN_SIDEBAR" }).catch(() => {});
   });
 
   shadow.appendChild(btn);
@@ -114,7 +106,7 @@ function createButton(x: number, y: number, selectedText: string) {
   floatingHost = host;
 }
 
-document.addEventListener("mouseup", () => {
+if (!isFirefox) document.addEventListener("mouseup", () => {
   // Small delay so the selection is finalised before we read it
   setTimeout(() => {
     const sel = window.getSelection();

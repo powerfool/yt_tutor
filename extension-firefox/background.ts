@@ -951,9 +951,16 @@ chrome.runtime.onMessage.addListener((msg: any, sender, sendResponse) => {
   // Firefox 128+: user activation propagates through runtime.sendMessage, so open() works here.
   if (msg.type === "OPEN_SIDEBAR") {
     console.log(`[background] OPEN_SIDEBAR`);
-    browser.sidebarAction.open().catch(() => {});
-    sendResponse({ ok: true });
-    return true;
+    // Firefox 128+: user activation from content script click propagates through
+    // sendMessage, so sidebarAction.open() is allowed here. Reply with ok:false
+    // on failure so the content script can show fallback feedback.
+    browser.sidebarAction.open()
+      .then(() => sendResponse({ ok: true }))
+      .catch((e) => {
+        console.error("[background] sidebarAction.open error:", e);
+        sendResponse({ ok: false });
+      });
+    return true; // async response
   }
 
   // Sidebar requests immediate extraction for a specific tab (e.g., on open)

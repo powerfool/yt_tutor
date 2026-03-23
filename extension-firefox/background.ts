@@ -1,8 +1,8 @@
 // Firefox-specific background worker.
-// Differs from extension/background.ts in TWO places only:
+// Differs from extension/background.ts in THREE places only:
 //   1. chrome.sidePanel.setPanelBehavior() calls are removed
-//      (sidebar_action in manifest.json handles open-on-click automatically)
-//   2. OPEN_SIDEBAR handler uses browser.sidebarAction.open() instead of chrome.sidePanel.open()
+//   2. action.onClicked listener added — toggles the sidebar (Firefox requires explicit handler)
+//   3. OPEN_SIDEBAR handler uses browser.sidebarAction.toggle() instead of chrome.sidePanel.open()
 // Requires Firefox 128+ (world: "MAIN" in scripting.executeScript added in Firefox 128).
 // When changing shared logic, apply to both extension/background.ts and this file.
 
@@ -754,9 +754,32 @@ async function extractFromTab(tabId: number) {
 
 // ── Setup ────────────────────────────────────────────────────────────────────
 
+// Firefox: action button click toggles the sidebar.
+// Chrome uses setPanelBehavior({ openPanelOnActionClick: true }) for this; Firefox requires
+// an explicit action.onClicked handler that calls browser.sidebarAction.toggle().
+chrome.action.onClicked.addListener(() => {
+  console.log("[background] action.onClicked fired → calling sidebarAction.toggle");
+  browser.sidebarAction.toggle().catch((e) => {
+    console.error("[background] sidebarAction.toggle error:", e);
+    // Fallback: try open() in case toggle() is unavailable
+    browser.sidebarAction.open().catch((e2) => {
+      console.error("[background] sidebarAction.open error:", e2);
+    });
+  });
+});
+
 chrome.runtime.onInstalled.addListener(async () => {
-  // Firefox: sidebar_action in manifest.json handles open-on-click automatically.
-  // No chrome.sidePanel.setPanelBehavior() call needed here.
+  // No chrome.sidePanel.setPanelBehavior() needed — sidebar_action in manifest handles it.
+
+  // Context menu: remove any stale items first (duplicate IDs fail silently on reload),
+  // then create fresh. Firefox uses browser.menus (chrome.contextMenus is not aliased).
+  browser.menus.removeAll().then(() => {
+    browser.menus.create({
+      id: "yt-tutor-selection",
+      title: "Ask YT Tutor",
+      contexts: ["selection"],
+    });
+  });
 
   // Inject into already-open YouTube tabs (fresh install won't have run content scripts)
   const tabs = await chrome.tabs.query({ url: "*://*.youtube.com/watch*" });
@@ -764,6 +787,19 @@ chrome.runtime.onInstalled.addListener(async () => {
   for (const tab of tabs) {
     if (tab.id) extractFromTab(tab.id);
   }
+});
+
+// Context menu click: store selection as pendingPrefill and open the sidebar.
+// menus.onClicked is a direct user gesture — sidebarAction.open() works reliably here.
+browser.menus.onClicked.addListener((info) => {
+  const selectedText = info.selectionText?.trim();
+  if (!selectedText) return;
+  console.log(`[background] context menu → selection len=${selectedText.length}`);
+  currentState.pendingPrefill = selectedText;
+  chrome.runtime.sendMessage({ type: "PREFILL_INPUT", selectedText }).catch(() => {});
+  browser.sidebarAction.open().catch((e) => {
+    console.error("[background] sidebarAction.open error:", e);
+  });
 });
 
 // Firefox: no chrome.sidePanel.setPanelBehavior() on startup — sidebar_action handles it.
@@ -912,7 +948,7 @@ chrome.runtime.onMessage.addListener((msg: any, sender, sendResponse) => {
   }
 
   // Content script requests sidebar open (after user clicks "Ask AI" button)
-  // Firefox: use browser.sidebarAction.open() — no tabId argument (opens for current window)
+  // Firefox 128+: user activation propagates through runtime.sendMessage, so open() works here.
   if (msg.type === "OPEN_SIDEBAR") {
     console.log(`[background] OPEN_SIDEBAR`);
     browser.sidebarAction.open().catch(() => {});

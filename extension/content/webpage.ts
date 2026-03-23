@@ -46,8 +46,13 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 // ── Floating "Ask AI" button on text selection ────────────────────────────────
 
 let floatingHost: HTMLElement | null = null;
+let dismissTimer: ReturnType<typeof setTimeout> | null = null;
 
 function removeButton() {
+  if (dismissTimer !== null) {
+    clearTimeout(dismissTimer);
+    dismissTimer = null;
+  }
   if (floatingHost) {
     floatingHost.remove();
     floatingHost = null;
@@ -71,7 +76,7 @@ function createButton(x: number, y: number, selectedText: string) {
   const shadow = host.attachShadow({ mode: "open" });
 
   const btn = document.createElement("button");
-  btn.textContent = "Ask AI";
+  btn.textContent = "Ask YT Tutor";
   btn.style.cssText = [
     "pointer-events:auto",
     "background:#1d4ed8",
@@ -89,9 +94,19 @@ function createButton(x: number, y: number, selectedText: string) {
 
   btn.addEventListener("click", (e) => {
     e.stopPropagation();
-    removeButton();
     chrome.runtime.sendMessage({ type: "WEBPAGE_SELECTION", selectedText }).catch(() => {});
-    chrome.runtime.sendMessage({ type: "OPEN_SIDEBAR" }).catch(() => {});
+    // Firefox: sidebarAction.open() cannot be called via message handler (user gesture lost).
+    // Show brief confirmation feedback instead; user opens the sidebar manually.
+    // Chrome: OPEN_SIDEBAR works fine via chrome.sidePanel.open().
+    const isFirefox = typeof (globalThis as unknown as { browser?: unknown }).browser !== "undefined";
+    if (isFirefox) {
+      btn.textContent = "Saved!";
+      btn.style.background = "#15803d";
+      dismissTimer = setTimeout(removeButton, 1200);
+    } else {
+      removeButton();
+      chrome.runtime.sendMessage({ type: "OPEN_SIDEBAR" }).catch(() => {});
+    }
   });
 
   shadow.appendChild(btn);

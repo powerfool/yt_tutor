@@ -3,7 +3,7 @@
   "name": "YT Tutor",
   "version": "1.0.0",
   "description": "Chat with YouTube videos using AI. Take notes in a persistent notebook.",
-  "permissions": ["scripting", "storage", "tabs"],
+  "permissions": ["scripting", "storage", "tabs", "menus"],
   "host_permissions": [
     "<all_urls>",
     "https://api.anthropic.com/*"

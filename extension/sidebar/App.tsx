@@ -197,7 +197,7 @@ export default function App() {
 
       if (msg.type === "PREFILL_INPUT") {
         console.log(`[app] PREFILL_INPUT len=${msg.selectedText?.length}`);
-        chatPanelRef.current?.prefillQuote(msg.selectedText ?? "");
+        setPendingPrefill(msg.selectedText ?? "");
       }
     };
     chrome.runtime.onMessage.addListener(listener);
@@ -263,12 +263,19 @@ export default function App() {
       ? normalizeUrl(webpageContext.url)
       : null;
 
-  // Apply pendingPrefill once contextId (and therefore ChatPanel) is ready
+  // Apply pendingPrefill once contextId (and therefore ChatPanel) is ready.
+  // If ChatPanel isn't mounted yet (layout is "notebook"), switch to chat first
+  // and wait for re-render before applying.
   useEffect(() => {
     if (!contextId || !pendingPrefill) return;
-    chatPanelRef.current?.prefillQuote(pendingPrefill);
+    if (!chatPanelRef.current) {
+      setLayout("chat");
+      chrome.storage.local.set({ layoutState: "chat" });
+      return;
+    }
+    chatPanelRef.current.prefillQuote(pendingPrefill);
     setPendingPrefill(null);
-  }, [contextId, pendingPrefill]);
+  }, [contextId, pendingPrefill, layout]);
 
   return (
     <div className="flex flex-col h-screen bg-white dark:bg-gray-950 text-gray-900 dark:text-gray-100">

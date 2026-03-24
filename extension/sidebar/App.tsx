@@ -44,9 +44,9 @@ function IconLayoutDestination({ current }: { current: Layout }) {
 
 function layoutButtonLabel(current: Layout): string {
   switch (current) {
-    case "chat":     return "Split";
-    case "both":     return "Notebook only";
-    case "notebook": return "Chat only";
+    case "chat":     return "Chat only";
+    case "both":     return "Split";
+    case "notebook": return "Notebook only";
   }
 }
 
@@ -197,7 +197,7 @@ export default function App() {
 
       if (msg.type === "PREFILL_INPUT") {
         console.log(`[app] PREFILL_INPUT len=${msg.selectedText?.length}`);
-        chatPanelRef.current?.prefillQuote(msg.selectedText ?? "");
+        setPendingPrefill(msg.selectedText ?? "");
       }
     };
     chrome.runtime.onMessage.addListener(listener);
@@ -236,7 +236,7 @@ export default function App() {
     <div className="flex items-center gap-1">
       <button
         onClick={cycleLayout}
-        title={`Switch to ${layoutButtonLabel(layout)} view`}
+        title={`Switch to ${layoutButtonLabel(nextLayout(layout))} view`}
         className="flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded-full border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:border-blue-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
       >
         <IconLayoutDestination current={layout} />
@@ -263,12 +263,19 @@ export default function App() {
       ? normalizeUrl(webpageContext.url)
       : null;
 
-  // Apply pendingPrefill once contextId (and therefore ChatPanel) is ready
+  // Apply pendingPrefill once contextId (and therefore ChatPanel) is ready.
+  // If ChatPanel isn't mounted yet (layout is "notebook"), switch to chat first
+  // and wait for re-render before applying.
   useEffect(() => {
     if (!contextId || !pendingPrefill) return;
-    chatPanelRef.current?.prefillQuote(pendingPrefill);
+    if (!chatPanelRef.current) {
+      setLayout("chat");
+      chrome.storage.local.set({ layoutState: "chat" });
+      return;
+    }
+    chatPanelRef.current.prefillQuote(pendingPrefill);
     setPendingPrefill(null);
-  }, [contextId, pendingPrefill]);
+  }, [contextId, pendingPrefill, layout]);
 
   return (
     <div className="flex flex-col h-screen bg-white dark:bg-gray-950 text-gray-900 dark:text-gray-100">

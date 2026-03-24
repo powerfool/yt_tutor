@@ -432,9 +432,16 @@ const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel({
     });
   }
 
-  const toggleLabel = mode === "webpage" ? "Page only" : "Video only";
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 144)}px`;
+  }, [input]);
+
+  const toggleLabel = "Focus";
   const toggleDesc = videoOnly
-    ? (mode === "webpage" ? "· answers from page only" : "· answers from the video transcript")
+    ? (mode === "webpage" ? "· answers from page only" : "· answers from transcript")
     : "· may draw on outside knowledge";
   const toggleTooltipOn = mode === "webpage"
     ? "Claude only answers based on the page content. It won't use any outside knowledge."
@@ -657,8 +664,6 @@ const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel({
             {loadingSuggestions ? "…" : "Suggest"}
           </button>
 
-          <div className="w-px h-4 bg-gray-200 dark:bg-gray-700 shrink-0" />
-
           {/* Clear */}
           <button
             onClick={clearChat}
@@ -692,8 +697,8 @@ const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel({
                   : "Ask anything… (Enter to send)"
               }
               disabled={showKeyBanner}
-              rows={2}
-              className="flex-1 px-3.5 py-2.5 text-sm rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500/60 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              rows={1}
+              className="flex-1 px-3.5 py-2.5 text-sm rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500 resize-none overflow-y-auto focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500/60 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             />
             <button
               onClick={sendMessage}

@@ -11,3 +11,4 @@
 - Focus mode toggle: restrict Claude to page/video content only
 - API key stored locally in the browser — never sent to any server
 - Tab-aware context: chat history and notes saved and restored per page
+- Initial Firefox release

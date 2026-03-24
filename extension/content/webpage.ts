@@ -43,11 +43,18 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   }
 });
 
-// ── Floating "Ask AI" button on text selection ────────────────────────────────
+// ── Floating "Ask YT Tutor" button on text selection (Chrome only) ───────────
+// Firefox uses the context menu instead (sidebar cannot be opened via message handler).
+const isFirefox = navigator.userAgent.includes("Firefox");
 
 let floatingHost: HTMLElement | null = null;
+let dismissTimer: ReturnType<typeof setTimeout> | null = null;
 
 function removeButton() {
+  if (dismissTimer !== null) {
+    clearTimeout(dismissTimer);
+    dismissTimer = null;
+  }
   if (floatingHost) {
     floatingHost.remove();
     floatingHost = null;
@@ -71,7 +78,7 @@ function createButton(x: number, y: number, selectedText: string) {
   const shadow = host.attachShadow({ mode: "open" });
 
   const btn = document.createElement("button");
-  btn.textContent = "Ask AI";
+  btn.textContent = "Ask YT Tutor";
   btn.style.cssText = [
     "pointer-events:auto",
     "background:#1d4ed8",
@@ -99,7 +106,7 @@ function createButton(x: number, y: number, selectedText: string) {
   floatingHost = host;
 }
 
-document.addEventListener("mouseup", () => {
+if (!isFirefox) document.addEventListener("mouseup", () => {
   // Small delay so the selection is finalised before we read it
   setTimeout(() => {
     const sel = window.getSelection();

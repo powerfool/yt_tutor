@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.0.2] - 2026-03-24
+- Firefox extension now available
+- Fix "Ask AI" button and context menu not working when notebook panel was active (Chrome and Firefox)
+- Focus mode toggle, layout labels, and auto-growing chat input
+
 ## [1.0.1] - 2026-03-23
 - Fix copy-to-notebook button from chat-only layout (NotebookPanel was unmounted when sidebar was in chat-only view)
 

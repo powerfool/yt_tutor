@@ -1,3 +1,5 @@
+import { DEFAULT_PROMPTS, type PromptKey } from "./lib/promptDefaults";
+
 // Background service worker — handles Anthropic API calls and transcript state
 console.log("[background] service worker started");
 
@@ -24,29 +26,12 @@ type AppState = {
 
 type HistoryMessage = { role: "user" | "assistant"; content: string };
 
-// Prompt defaults (mirrors src/lib/settings.ts)
-const PROMPTS = {
-  system:
-    "You are a helpful research assistant helping a learner study a YouTube video.",
-  videoOnly:
-    "Answer using the full video transcript. Do not bring in any knowledge, facts, or opinions from outside this video.",
-  general:
-    "Use both the video content and your general knowledge to give the most helpful answer.",
-  suggestFresh:
-    "The learner just opened this video. Based on the title and content, generate 4 varied questions that will spark curiosity and help them engage deeply with the material. Mix different angles: core concepts, implications, comparisons, and \"why does this matter?\" questions. Return ONLY a JSON array of 4 strings, no explanation, no markdown fences.",
-  suggestHistory:
-    "The learner has been having a conversation about this video. Generate 4 natural follow-up questions based on what they've discussed. Avoid questions already answered. Keep questions concise and specific.\nReturn ONLY a JSON array of 4 strings, no explanation, no markdown fences.",
-  webpageSystem:
-    "You are a helpful research assistant. The user is reading a webpage and has questions about its content.",
-  webpagePageOnly:
-    "Answer only based on the page content provided. Do not draw on outside knowledge.",
-  webpageGeneral:
-    "Use the provided page content and your general knowledge to give the most helpful answer.",
-  webpageSuggestFresh:
-    "Based on the page title and content, generate 4 varied questions to spark curiosity. Return ONLY a JSON array of 4 strings.",
-  webpageSuggestHistory:
-    "Generate 4 natural follow-up questions based on the conversation so far. Return ONLY a JSON array of 4 strings.",
-};
+// Custom prompt overrides — loaded from storage and kept in sync via onChanged
+let customPrompts: Partial<Record<PromptKey, string>> = {};
+
+function p(key: PromptKey): string {
+  return customPrompts[key] ?? DEFAULT_PROMPTS[key];
+}
 
 // In-memory state (service worker may restart; critical state is backed by storage)
 let currentState: AppState = {
@@ -111,20 +96,20 @@ function buildSystemBlocks(
       .map((s) => `${formatMs(s.offset)} ${s.text}`)
       .join("\n");
     block1 =
-      `${PROMPTS.system}\n` +
+      `${p("system")}\n` +
       `The video is titled: "${videoTitle ?? "Unknown"}"\n\n` +
       `FULL TRANSCRIPT:\n${transcriptText}`;
   } else if (videoTitle) {
     block1 =
-      `${PROMPTS.system}\n` +
+      `${p("system")}\n` +
       `The video is titled: "${videoTitle}"\n` +
       `(No transcript available for this video.)`;
   } else {
-    block1 = PROMPTS.system;
+    block1 = p("system");
   }
 
   const timeStr = formatSec(currentTimeSec ?? 0);
-  const block2 = `The learner is currently at ${timeStr}.\n${videoOnly ? PROMPTS.videoOnly : PROMPTS.general}`;
+  const block2 = `The learner is currently at ${timeStr}.\n${videoOnly ? p("videoOnly") : p("general")}`;
 
   return [
     { type: "text", text: block1, cache_control: { type: "ephemeral" } },
@@ -138,12 +123,12 @@ function buildWebpageSystemBlocks(context: WebpageContext, pageOnly: boolean) {
     : "\n\n(No content could be extracted from this page.)";
 
   const block1 =
-    `${PROMPTS.webpageSystem}\n` +
+    `${p("webpageSystem")}\n` +
     `Page title: "${context.title}"\n` +
     `URL: ${context.url}` +
     contentSection;
 
-  const block2 = pageOnly ? PROMPTS.webpagePageOnly : PROMPTS.webpageGeneral;
+  const block2 = pageOnly ? p("webpagePageOnly") : p("webpageGeneral");
 
   return [
     { type: "text", text: block1, cache_control: { type: "ephemeral" } },
@@ -388,15 +373,15 @@ async function handleSuggest(payload: {
         : "\n\n(No content could be extracted from this page.)";
       systemBlock = {
         type: "text",
-        text: `${PROMPTS.webpageSystem}\nPage title: "${ctx.title}"\nURL: ${ctx.url}${contentSection}`,
+        text: `${p("webpageSystem")}\nPage title: "${ctx.title}"\nURL: ${ctx.url}${contentSection}`,
         cache_control: { type: "ephemeral" },
       };
     } else {
-      systemBlock = { type: "text", text: PROMPTS.webpageSystem, cache_control: { type: "ephemeral" } };
+      systemBlock = { type: "text", text: p("webpageSystem"), cache_control: { type: "ephemeral" } };
     }
     userPrompt = hasPrior
-      ? PROMPTS.webpageSuggestHistory + historyContext
-      : PROMPTS.webpageSuggestFresh;
+      ? p("webpageSuggestHistory") + historyContext
+      : p("webpageSuggestFresh");
   } else {
     // YouTube mode
     let transcript: TranscriptSegment[] | null = null;
@@ -414,16 +399,16 @@ async function handleSuggest(payload: {
     let block1: string;
     if (transcript && transcript.length > 0) {
       const transcriptText = transcript.map((s) => `${formatMs(s.offset)} ${s.text}`).join("\n");
-      block1 = `${PROMPTS.system}\nVideo title: "${videoTitle ?? "Unknown"}"\n\nFULL TRANSCRIPT:\n${transcriptText}`;
+      block1 = `${p("system")}\nVideo title: "${videoTitle ?? "Unknown"}"\n\nFULL TRANSCRIPT:\n${transcriptText}`;
     } else if (videoTitle) {
-      block1 = `${PROMPTS.system}\nVideo title: "${videoTitle}"\n(No transcript available.)`;
+      block1 = `${p("system")}\nVideo title: "${videoTitle}"\n(No transcript available.)`;
     } else {
-      block1 = PROMPTS.system;
+      block1 = p("system");
     }
     systemBlock = { type: "text", text: block1, cache_control: { type: "ephemeral" } };
     userPrompt = hasPrior
-      ? PROMPTS.suggestHistory + historyContext
-      : PROMPTS.suggestFresh;
+      ? p("suggestHistory") + historyContext
+      : p("suggestFresh");
   }
 
   try {
@@ -473,7 +458,9 @@ async function restoreState() {
   const stored = await chrome.storage.local.get([
     "currentVideoId", "currentVideoTitle", "currentHasTranscript",
     "currentMode", "currentWebpageUrl", "currentWebpageTitle",
+    "customPrompts",
   ]);
+  customPrompts = (stored.customPrompts as Partial<Record<PromptKey, string>>) ?? {};
   const videoId = stored.currentVideoId as string | null ?? null;
   const mode = (stored.currentMode as PageMode | undefined) ?? (videoId ? "youtube" : "none");
 
@@ -513,6 +500,13 @@ async function restoreState() {
 
 // Awaitable so GET_STATE can wait for restore before responding
 const restorePromise = restoreState();
+
+// Keep customPrompts in sync when the user saves from SettingsPanel
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === "local" && changes.customPrompts) {
+    customPrompts = (changes.customPrompts.newValue as Partial<Record<PromptKey, string>>) ?? {};
+  }
+});
 
 // ── Direct tab extraction (handles already-open tabs / fresh install) ─────────
 

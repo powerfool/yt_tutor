@@ -121,7 +121,7 @@ export default function SettingsPanel({ onClose }: Props) {
     setPromptStatus("saving");
     const overrides: Partial<Record<PromptKey, string>> = {};
     for (const key of allPromptKeys) {
-      if (drafts[key] !== DEFAULT_PROMPTS[key]) {
+      if (drafts[key].trim() && drafts[key] !== DEFAULT_PROMPTS[key]) {
         overrides[key] = drafts[key];
       }
     }
@@ -222,19 +222,16 @@ export default function SettingsPanel({ onClose }: Props) {
         <div>
           <button
             onClick={() => setPromptsOpen((o) => !o)}
-            className="flex items-center justify-between w-full text-left group"
+            className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 transition-colors group"
           >
-            <div className="flex items-center gap-2">
-              <span className="text-sm font-medium text-gray-800 dark:text-gray-200">Prompts</span>
-              {hasAnyCustomPrompt && (
-                <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400">
-                  customized
-                </span>
-              )}
-            </div>
-            <span className="text-gray-400 dark:text-gray-500 group-hover:text-gray-600 dark:group-hover:text-gray-300 transition-colors">
-              <IconChevron open={promptsOpen} />
-            </span>
+            <IconChevron open={promptsOpen} />
+            <span>Customise prompts</span>
+            <span className="text-gray-400 dark:text-gray-500">(advanced)</span>
+            {hasAnyCustomPrompt && (
+              <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400">
+                customized
+              </span>
+            )}
           </button>
 
           {promptsOpen && (

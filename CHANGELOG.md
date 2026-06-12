@@ -1,5 +1,8 @@
 # Changelog
 
+## [1.0.3] - 2026-06-12
+- Fix AI responses being silently cut off mid-sentence — doubled the maximum response length and added a notice when a response is still cut short
+
 ## [1.0.2] - 2026-03-24
 - Firefox extension now available
 - Fix "Ask AI" button and context menu not working when notebook panel was active (Chrome and Firefox)

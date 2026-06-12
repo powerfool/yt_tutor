@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "YT Tutor",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Chat with YouTube videos using AI. Take notes in a persistent notebook.",
   "permissions": ["scripting", "storage", "tabs", "menus"],
   "host_permissions": [
@@ -34,7 +34,11 @@
   "browser_specific_settings": {
     "gecko": {
       "id": "yt-tutor@extension",
-      "strict_min_version": "128.0"
+      "strict_min_version": "140.0",
+      "data_collection_permissions": {
+        "required": ["none"],
+        "optional": []
+      }
     }
   }
 }

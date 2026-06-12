@@ -1,5 +1,8 @@
 # Changelog
 
+## [1.0.4] - 2026-06-12
+- Customise AI prompts from Settings — edit the system prompt, focus mode instruction, and suggestion prompts for both YouTube and Webpage modes (advanced)
+
 ## [1.0.3] - 2026-06-12
 - Fix AI responses being silently cut off mid-sentence — doubled the maximum response length and added a notice when a response is still cut short
 

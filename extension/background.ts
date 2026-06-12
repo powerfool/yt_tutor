@@ -246,7 +246,7 @@ async function handleChat(payload: {
       },
       body: JSON.stringify({
         model: "claude-sonnet-4-6",
-        max_tokens: 4096,
+        max_tokens: 8192,
         stream: true,
         system: systemBlocks,
         messages: [...history, { role: "user", content: message }],
@@ -277,6 +277,7 @@ async function handleChat(payload: {
     let buffer = "";
     let totalChars = 0;
     let firstChunkLogged = false;
+    let hitTokenLimit = false;
 
     while (true) {
       const { done, value } = await reader.read();
@@ -309,11 +310,24 @@ async function handleChat(payload: {
               streamId,
               chunk: parsed.delta.text,
             }).catch(() => {});
+          } else if (
+            parsed.type === "message_delta" &&
+            parsed.delta?.stop_reason === "max_tokens"
+          ) {
+            hitTokenLimit = true;
           }
         } catch {
           // malformed SSE line — skip
         }
       }
+    }
+
+    if (hitTokenLimit) {
+      chrome.runtime.sendMessage({
+        type: "CHAT_CHUNK",
+        streamId,
+        chunk: "\n\n_(Response was cut off — ask me to continue.)_",
+      }).catch(() => {});
     }
 
     console.log(`[chat] DONE streamId=${streamId} totalChars=${totalChars}`);

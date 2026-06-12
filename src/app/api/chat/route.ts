@@ -88,7 +88,7 @@ export async function POST(req: NextRequest) {
 
     const stream = await client.messages.stream({
       model: "claude-sonnet-4-6",
-      max_tokens: 4096,
+      max_tokens: 8192,
       system: systemBlocks,
       messages: [...history, { role: "user", content: message }],
     });
@@ -104,6 +104,10 @@ export async function POST(req: NextRequest) {
             ) {
               controller.enqueue(encoder.encode(chunk.delta.text));
             }
+          }
+          const finalMsg = await stream.finalMessage();
+          if (finalMsg.stop_reason === "max_tokens") {
+            controller.enqueue(encoder.encode("\n\n_(Response was cut off — ask me to continue.)_"));
           }
         } catch (err) {
           console.error("[CHAT] stream error:", err);

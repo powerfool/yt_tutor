@@ -1,5 +1,8 @@
 # Changelog
 
+## [1.0.5] - 2026-06-15
+- Fix Firefox extension — transcript detection and chat were completely broken after the v1.0.4 update (Firefox)
+
 ## [1.0.4] - 2026-06-12
 - Customise AI prompts from Settings — edit the system prompt, focus mode instruction, and suggestion prompts for both YouTube and Webpage modes (advanced)
 

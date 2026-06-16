@@ -1,5 +1,8 @@
 # Changelog
 
+## [1.0.6] - 2026-06-16
+- Added a Copy button to chat responses — click it to copy the message to your clipboard, with a brief "Copied!" confirmation
+
 ## [1.0.5] - 2026-06-15
 - Fix Firefox extension — transcript detection and chat were completely broken after the v1.0.4 update (Firefox)
 

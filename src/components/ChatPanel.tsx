@@ -47,6 +47,7 @@ export default function ChatPanel({ projectId, videoId, videoTitle, transcript, 
   const [suggestions, setSuggestions] = useState<string[] | null>(null);
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
   const [messagesLoaded, setMessagesLoaded] = useState(false);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const prevVideoIdRef = useRef<string | null>(null);
   const messagesRef = useRef<HTMLDivElement>(null);
@@ -475,14 +476,29 @@ export default function ChatPanel({ projectId, videoId, videoTitle, transcript, 
                       msg.content
                     )}
                   </div>
-                  {msg.role === "assistant" && msg.content && onCopyMarkdownToNotebook && (
-                    <button
-                      onClick={() => onCopyMarkdownToNotebook(msg.content)}
-                      className="absolute -bottom-5 left-0 opacity-0 group-hover:opacity-100 text-[10px] text-gray-400 dark:text-gray-500 hover:text-blue-500 dark:hover:text-blue-400 transition-all whitespace-nowrap"
-                      title="Copy to notebook"
-                    >
-                      → Notebook
-                    </button>
+                  {msg.role === "assistant" && msg.content && (
+                    <div className="absolute -bottom-5 left-0 flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-all">
+                      {onCopyMarkdownToNotebook && (
+                        <button
+                          onClick={() => onCopyMarkdownToNotebook(msg.content)}
+                          className="text-[10px] text-gray-400 dark:text-gray-500 hover:text-blue-500 dark:hover:text-blue-400 transition-colors whitespace-nowrap"
+                          title="Send to notebook"
+                        >
+                          → Notebook
+                        </button>
+                      )}
+                      <button
+                        onClick={() => {
+                          navigator.clipboard.writeText(msg.content);
+                          setCopiedId(msg.id);
+                          setTimeout(() => setCopiedId(null), 1500);
+                        }}
+                        className="text-[10px] text-gray-400 dark:text-gray-500 hover:text-blue-500 dark:hover:text-blue-400 transition-colors whitespace-nowrap"
+                        title="Copy to clipboard"
+                      >
+                        {copiedId === msg.id ? "Copied!" : "Copy"}
+                      </button>
+                    </div>
                   )}
                 </div>
               </div>

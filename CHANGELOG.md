@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.0.7] - 2026-06-29
+- YouTube Shorts now supported — transcript and chat work on Shorts videos with captions
+- Title pill now appears in chat as soon as you navigate to a video, without needing to send a message first
+- New Summary button — generates a short paragraph overview of the video plus bulleted key moments with timestamps
+
 ## [1.0.6] - 2026-06-16
 - Added a Copy button to chat responses — click it to copy the message to your clipboard, with a brief "Copied!" confirmation
 

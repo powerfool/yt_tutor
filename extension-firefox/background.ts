@@ -563,7 +563,11 @@ async function extractFromTab(tabId: number) {
   let videoTitle = "Unknown Video";
   try {
     const tab = await chrome.tabs.get(tabId);
-    if (tab.url) videoId = new URL(tab.url).searchParams.get("v");
+    if (tab.url) {
+      const u = new URL(tab.url);
+      videoId = u.searchParams.get("v") ??
+        (u.pathname.startsWith("/shorts/") ? u.pathname.split("/")[2] || null : null);
+    }
     if (tab.title) videoTitle = tab.title.replace(/ [-–] YouTube$/, "").trim() || "Unknown Video";
   } catch { return; }
   if (!videoId) return;
@@ -790,7 +794,11 @@ chrome.runtime.onInstalled.addListener(async () => {
   });
 
   // Inject into already-open YouTube tabs (fresh install won't have run content scripts)
-  const tabs = await chrome.tabs.query({ url: "*://*.youtube.com/watch*" });
+  const [watchTabs, shortsTabs] = await Promise.all([
+    chrome.tabs.query({ url: "*://*.youtube.com/watch*" }),
+    chrome.tabs.query({ url: "*://*.youtube.com/shorts/*" }),
+  ]);
+  const tabs = [...watchTabs, ...shortsTabs];
   console.log(`[onInstalled] found ${tabs.length} open YouTube tab(s) → extracting`);
   for (const tab of tabs) {
     if (tab.id) extractFromTab(tab.id);
@@ -814,7 +822,7 @@ browser.menus.onClicked.addListener((info) => {
 
 // Extract when any YouTube watch page finishes loading
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-  if (changeInfo.status === "complete" && tab.url?.includes("youtube.com/watch")) {
+  if (changeInfo.status === "complete" && (tab.url?.includes("youtube.com/watch") || tab.url?.includes("youtube.com/shorts/"))) {
     console.log(`[tabs.onUpdated] tabId=${tabId} status=complete url=${tab.url} → extracting`);
     extractFromTab(tabId);
   }
@@ -829,9 +837,13 @@ async function handleTabActivated(tabId: number) {
 
   console.log(`[handleTabActivated] tabId=${tabId} url=${url}`);
 
-  if (url.includes("youtube.com/watch")) {
+  if (url.includes("youtube.com/watch") || url.includes("youtube.com/shorts/")) {
     let videoId: string | null = null;
-    try { videoId = new URL(url).searchParams.get("v"); } catch { return; }
+    try {
+      const u = new URL(url);
+      videoId = u.searchParams.get("v") ??
+        (u.pathname.startsWith("/shorts/") ? u.pathname.split("/")[2] || null : null);
+    } catch { return; }
     if (!videoId) return;
 
     // Serve from cache immediately; only extract if we have no cached transcript

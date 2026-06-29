@@ -4,18 +4,22 @@
 
 export {};
 
+function isVideoPage(): boolean {
+  return location.pathname === "/watch" || location.pathname.startsWith("/shorts/");
+}
+
 function notifyBackground() {
-  if (location.pathname === "/watch") {
+  if (isVideoPage()) {
     console.log(`[yt-content] notifying background url=${location.href}`);
     chrome.runtime.sendMessage({ type: "YOUTUBE_NAVIGATED" }).catch(() => {});
   }
 }
 
 // Notify on initial script injection (page load or fresh install injection)
-if (location.pathname === "/watch") {
+if (isVideoPage()) {
   console.log(`[yt-content] initial injection url=${location.href} → notifying`);
 } else {
-  console.log(`[yt-content] initial injection url=${location.href} → not a watch page, skipping`);
+  console.log(`[yt-content] initial injection url=${location.href} → not a video page, skipping`);
 }
 notifyBackground();
 
@@ -31,8 +35,8 @@ let lastUrl = location.href;
 new MutationObserver(() => {
   if (location.href !== lastUrl) {
     lastUrl = location.href;
-    if (location.pathname === "/watch") {
-      console.log(`[yt-content] url-change fallback → /watch detected, notifying in 1200ms url=${location.href}`);
+    if (isVideoPage()) {
+      console.log(`[yt-content] url-change fallback → video page detected, notifying in 1200ms url=${location.href}`);
       setTimeout(notifyBackground, 1200);
     }
   }

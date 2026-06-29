@@ -73,6 +73,7 @@ const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel({
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
   const [messagesLoaded, setMessagesLoaded] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [loadingSummary, setLoadingSummary] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const prevContextIdRef = useRef<string | null>(null);
   const messagesRef = useRef<HTMLDivElement>(null);
@@ -149,6 +150,7 @@ const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel({
     if (isNewContext) {
       prevContextIdRef.current = contextId;
       setSuggestions(null);
+      ensureSessionPill();
     }
 
     // Update the existing pill's label if videoTitle changed (YouTube only)
@@ -220,6 +222,7 @@ const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel({
 
       if (msg.type === "CHAT_DONE" && msg.streamId === activeStreamId.current) {
         setStreaming(false);
+        setLoadingSummary(false);
         const streamId = activeStreamId.current;
         activeStreamId.current = null;
         if (contextId && streamId) {
@@ -236,6 +239,7 @@ const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel({
       }
 
       if (msg.type === "CHAT_ERROR" && msg.streamId === activeStreamId.current) {
+        setLoadingSummary(false);
         const streamId = activeStreamId.current;
         activeStreamId.current = null;
         console.log(`[chat-panel] CHAT_ERROR streamId=${streamId} error="${msg.error}"`);
@@ -377,6 +381,61 @@ const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel({
       chrome.runtime.onMessage.removeListener(listener);
       setLoadingSuggestions(false);
     }, 15000);
+  }
+
+  function fetchSummary() {
+    if (!contextId || streaming || showKeyBanner) return;
+
+    ensureSessionPill();
+
+    const summaryPrompt = mode === "youtube"
+      ? "Summarize this video in a short paragraph and then list its most important moments in bullets with their timestamps."
+      : "Summarize this page in a short paragraph and then list its most important sections in bullets.";
+
+    const userMsg: Message = {
+      id: crypto.randomUUID(),
+      role: "user",
+      content: summaryPrompt,
+      videoId: contextId,
+    };
+
+    const streamId = crypto.randomUUID();
+    activeStreamId.current = streamId;
+    const history = buildHistory();
+
+    const streamMsg: Message = {
+      id: streamId,
+      role: "assistant",
+      content: "",
+      videoId: contextId,
+    };
+
+    const withUser = [...allMessagesRef.current, userMsg];
+    const withStream = [...withUser, streamMsg];
+    setMessages(withStream);
+    setSuggestions(null);
+    setLoadingSummary(true);
+
+    if (contextId) {
+      saveMessages(mode, contextId, withUser);
+      allMessagesRef.current = withUser;
+    }
+
+    setStreaming(true);
+
+    chrome.runtime.sendMessage({
+      type: "CHAT",
+      payload: {
+        message: summaryPrompt,
+        history,
+        videoOnly: true,
+        videoId,
+        currentTimeSec: 0,
+        streamId,
+        mode,
+        webpageContext: mode === "webpage" ? webpageContext : null,
+      },
+    });
   }
 
   function sendMessage() {
@@ -673,11 +732,21 @@ const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel({
           {/* Suggest */}
           <button
             onClick={fetchSuggestions}
-            disabled={loadingSuggestions}
+            disabled={loadingSuggestions || streaming}
             className="shrink-0 text-[11px] px-2.5 py-1 rounded-full border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:border-blue-400 hover:text-blue-600 dark:hover:text-blue-400 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             title="Suggest questions"
           >
             {loadingSuggestions ? "…" : "Suggest"}
+          </button>
+
+          {/* Summary */}
+          <button
+            onClick={fetchSummary}
+            disabled={streaming || showKeyBanner || (mode === "youtube" && !hasTranscript)}
+            className="shrink-0 text-[11px] px-2.5 py-1 rounded-full border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:border-purple-400 hover:text-purple-600 dark:hover:text-purple-400 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            title={mode === "youtube" && !hasTranscript ? "No transcript available" : "Summarize this video"}
+          >
+            {loadingSummary ? "…" : "Summary"}
           </button>
 
           {/* Clear */}
